@@ -1,0 +1,739 @@
+---
+title: "Illumina_Run3_Processing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#### Initial settings 
+```{r}
+silvadb <- 132 # set the version of the SILVA release that was used for classification
+rdprel <- 16 #set the version of the RDP release that was used
+fldr <- "/media/projects2/LisaM/Batch_Experiments/OTU-recovery3_All/2_Processing/" #relative location from the report project to the data.
+dataname <- "Batch"
+metadatafn <- "/media/projects2/LisaM/Batch_Experiments/OTU-recovery3_All/2_Processing/MetaData.xlsx" #relative path (from fldr) to select other Metadata files
+
+```
+
+```{r}
+# set global chunk options: 
+library(knitr)
+opts_chunk$set(cache=TRUE, autodep = TRUE)
+#dep_auto()
+
+#in this way, for every chunck, if any previous chunck is changed, it will be recompiled
+#given that only generally the first chunck should change, on first run the cache will be 
+#rebuilt by default but subsequent downstream changes should be fine
+```
+
+
+#### load required packages ####
+```{r}
+#### load required packages ####
+library(scales)   #for percent formatting
+library(ggplot2)  #for adequate plotting
+library(plyr)     #data wrangling (mapvalues)
+suppressPackageStartupMessages(library(dplyr))    #data wrangling
+library(tidyr)    #tidy data
+suppressPackageStartupMessages(library(reshape2)) #for melt function
+library(vegan)    #for ecological calculations
+library(phyloseq) #for microbiome census data processing
+library(ade4)     #for ecological calculations
+library(gplots)   #for heatmap.2
+library(splitstackshape) #for csplit
+library(knitr)    #for simple markdown tables
+library(xtable)   #for more advanced tables
+library(ape)      #dealing with phylogenetic trees
+library(xlsx)     #handling Excel files
+library(openxlsx) #handling Excel files without Java deps
+library(readxl)   #faster handling of excel files
+library(data.table) #data wrangling
+library(SPECIES)  #alpha diversity estimators
+library(parallel) #parallel computation in R
+library(purrr) #functional programming
+library(DESeq2)  #normalization procedures to cope with differences in smp depth
+library(NMF)
+library(devtools) #nicer session info
+library(viridis) # for color-blind nice color palettes
+library(Phenoflow)
+library(pander)
+
+```
+
+```{r}
+
+#### user defined functions ####
+#need to be integrated in dedicated package at https://github.ugent.be/LabMETNGS/CMETNGS_package
+preformattax <- function(taxonomy)     #reformats column with taxonomy (see excelfile) and splits it into different columns
+{
+  #Input: mothur taxonomy with probs=T (default)
+  #Output: splitted and stripped tax file for R processing (e.g. phyloseq)
+  tax.good <- cSplit(taxonomy,"Taxonomy",";")
+  tax.good.probs <- do.call(cbind, lapply(tax.good[,3:ncol(tax.good)], 
+                                          function(x){
+                                            do.call(rbind, 
+                                                    strsplit(as.character(x), 
+                                                             "\\((?=\\d)", 
+                                                             perl = TRUE))
+                                          }
+  )
+  )
+  # tax.good.probs.nona <- subset(tax.good.probs,
+  #           select=which(colSums(apply(tax.good.probs,2,is.na))==0))
+  tax.final <- as.data.frame(apply(tax.good.probs,2,
+                                   function(x) sub(")","",x)))
+  otunames <- tax.good$OTU
+  rownames(tax.final) <- otunames
+  colnames(tax.final) <- c("Regnum","Prob_R","Phylum","Prob_P",
+                           "Classis","Prob_C","Ordo","Prob_O",
+                           "Familia","Prob_F","Genus","Prob_G")
+  if(ncol(tax.final)==12){
+    #for RDP & SILVA taxonomies which stop at genus level
+    tax.final <- as.data.frame(mutate(tax.final,Species=NA,Prob_S=NA))
+    rownames(tax.final) <- otunames
+  }else{
+    #for greengenes taxonomy
+    colnames(tax.final)[13:14] <- c("Species","Prob_S")
+    tax.final <- as.data.frame(apply(tax.final,
+                                     2,
+                                     function(x)sub("[a-z]__","",x)))
+    tax.final$Species <- paste(tax.final$Genus,tax.final$Species) #just the species is not very sensible
+  }
+  #to comply to mothur 1.38 tax format
+  charvectgenus <- as.character(tax.final$Genus)
+  probvectgenus <- as.numeric(as.character(tax.final$Prob_G))
+  nasgenuslev <- which(is.na(charvectgenus))
+  for(i in nasgenuslev)
+  {
+    if(grepl("unclassified",as.character(tax.final$Familia[i])))
+    {
+      if(!is.na(as.character(tax.final$Familia[i])))
+      {
+        charvectgenus[i]<-as.character(tax.final$Familia[i])
+      }else{
+        if(grepl("unclassified",as.character(tax.final$Ordo[i])))
+        {
+          charvectgenus[i]<-as.character(tax.final$Ordo[i])
+        }
+      }
+      
+    }else{
+      if(!is.na(as.character(tax.final$Familia[i])))
+      {
+        charvectgenus[i]<-paste0(as.character(tax.final$Familia[i]),"_unclassified")
+      }else{
+        charvectgenus[i]<-paste0(as.character(tax.final$Ordo[i]),"_unclassified")
+      }
+      
+    }
+    probvectgenus[i] <- as.numeric(as.character(tax.final$Prob_F[i]))
+  }
+  tax.final$Genus <- factor(charvectgenus)
+  tax.final$Prob_G <- probvectgenus
+  
+  charvectfamilia <- as.character(tax.final$Familia)
+  probvectfamilia <- as.numeric(as.character(tax.final$Prob_F))
+  nasfamlev <- which(is.na(charvectfamilia))
+  for(i in nasfamlev)
+  {
+    if(grepl("unclassified",as.character(tax.final$Ordo[i])))
+    {
+      if(!is.na(as.character(tax.final$Ordo[i])))
+      {
+        charvectfamilia[i]<-as.character(tax.final$Ordo[i])
+      }else{
+        if(grepl("unclassified",as.character(tax.final$Classis[i])))
+        {
+          charvectfamilia[i]<-as.character(tax.final$Classis[i])
+        }
+      }
+      
+    }else{
+      if(!is.na(as.character(tax.final$Ordo[i])))
+      {
+        charvectfamilia[i]<-paste0(as.character(tax.final$Ordo[i]),"_unclassified")
+      }else{
+        charvectfamilia[i]<-paste0(as.character(tax.final$Classis[i]),"_unclassified")
+      }
+      
+    }
+    probvectfamilia[i] <- as.numeric(as.character(tax.final$Prob_O[i]))
+  }
+  tax.final$Familia <- factor(charvectfamilia)
+  tax.final$Prob_F <- probvectfamilia
+  return(tax.final)
+}
+
+preformattax.new <- function(taxonomy)
+{
+  #Input: mothur taxonomy with probs=T (default)
+  #Output: splitted and stripped tax file for R processing (e.g. phyloseq)
+  tax.good <- cSplit(taxonomy,"Taxonomy",";")
+  tax.good.probs <- do.call(cbind, lapply(tax.good[,3:ncol(tax.good)], 
+                                          function(x){
+                                            do.call(rbind, 
+                                                    strsplit(as.character(x), 
+                                                             "\\((?=\\d)", 
+                                                             perl = TRUE))
+                                          }
+  )
+  )
+  #above lies difference with regular preformattax, checks for number after bracket (line above and below)
+  tax.final <- as.data.frame(apply(tax.good.probs,2,
+                                   function(x) sub(")","",x)))
+  
+  # tax.final.noprobs <- as.data.frame(apply(tax.good.probs,2,
+  #                                 function(x) sub(")","",x)))
+  # tax.final <- suppressMessages(suppressWarnings(as.data.frame(sapply(tax.final.noprobs,
+  #                                     function(x){mapvalues(x,from="00",to="100")}))))
+  otunames <- tax.good$OTU
+  #tax.final <- subset(tax.final,select=-c(OTU,Size))
+  rownames(tax.final) <- otunames
+  colnames(tax.final) <- c("Regnum","Prob_R","Phylum","Prob_P",
+                           "Classis","Prob_C","Ordo","Prob_O",
+                           "Familia","Prob_F","Genus","Prob_G")
+  if(ncol(tax.final)==12){
+    #for RDP & SILVA taxonomies which stop at genus level
+    tax.final <- as.data.frame(mutate(tax.final,Species=NA,Prob_S=NA))
+    rownames(tax.final) <- otunames
+  }else{
+    #for greengenes taxonomy
+    colnames(tax.final)[13:14] <- c("Species","Prob_S")
+    tax.final <- as.data.frame(apply(tax.final,
+                                     2,
+                                     function(x)sub("[a-z]__","",x)))
+    tax.final$Species <- paste(tax.final$Genus,tax.final$Species) #just the species is not very sensible
+  }
+  #to comply to mothur 1.38 tax format
+  charvectgenus <- as.character(tax.final$Genus)
+  probvectgenus <- as.numeric(as.character(tax.final$Prob_G))
+  nasgenuslev <- which(is.na(charvectgenus))
+  for(i in nasgenuslev)
+  {
+    if(grepl("unclassified",as.character(tax.final$Familia[i])))
+    {
+      if(!is.na(as.character(tax.final$Familia[i])))
+      {
+        charvectgenus[i]<-as.character(tax.final$Familia[i])
+      }else{
+        if(grepl("unclassified",as.character(tax.final$Ordo[i])))
+        {
+          charvectgenus[i]<-as.character(tax.final$Ordo[i])
+        }
+      }
+      
+    }else{
+      if(!is.na(as.character(tax.final$Familia[i])))
+      {
+        charvectgenus[i]<-paste0(as.character(tax.final$Familia[i]),"_unclassified")
+      }else{
+        charvectgenus[i]<-paste0(as.character(tax.final$Ordo[i]),"_unclassified")
+      }
+      
+    }
+    probvectgenus[i] <- as.numeric(as.character(tax.final$Prob_F[i]))
+  }
+  tax.final$Genus <- factor(charvectgenus)
+  tax.final$Prob_G <- probvectgenus
+  
+  charvectfamilia <- as.character(tax.final$Familia)
+  probvectfamilia <- as.numeric(as.character(tax.final$Prob_F))
+  nasfamlev <- which(is.na(charvectfamilia))
+  for(i in nasfamlev)
+  {
+    if(grepl("unclassified",as.character(tax.final$Ordo[i])))
+    {
+      if(!is.na(as.character(tax.final$Ordo[i])))
+      {
+        charvectfamilia[i]<-as.character(tax.final$Ordo[i])
+      }else{
+        if(grepl("unclassified",as.character(tax.final$Classis[i])))
+        {
+          charvectfamilia[i]<-as.character(tax.final$Classis[i])
+        }
+      }
+      
+    }else{
+      if(!is.na(as.character(tax.final$Ordo[i])))
+      {
+        charvectfamilia[i]<-paste0(as.character(tax.final$Ordo[i]),"_unclassified")
+      }else{
+        charvectfamilia[i]<-paste0(as.character(tax.final$Classis[i]),"_unclassified")
+      }
+      
+    }
+    probvectfamilia[i] <- as.numeric(as.character(tax.final$Prob_O[i]))
+  }
+  tax.final$Familia <- factor(charvectfamilia)
+  tax.final$Prob_F <- probvectfamilia
+  return(tax.final)
+}
+
+library(CMETNGS) #will be integrated into CMETNGS package
+
+```
+
+
+#### load data 
+```{r}
+#### load data ####
+
+if(.Platform$OS.type == "unix") {
+  crfn <- system(paste("ls",fldr," | grep contigs.report"),intern=TRUE)
+} else {
+  filelist <- list.files(fldr)
+  crfn <- grep(".*contigs.report",filelist,value=TRUE)
+}
+fn <- sub(".contigs.report","",crfn)
+ini <- fread(paste(fldr,"/",crfn,sep=""),header=TRUE)
+csum <- fread(paste(fldr,"/",fn,
+                    ".trim.contigs.summary",sep=""),header=TRUE)
+firsttrimsum <- fread(paste(fldr,"/",fn,
+                            ".trim.contigs.good.summary",sep=""),
+                      header=TRUE)
+uniquesum <- fread(paste(fldr,"/",fn,
+                         ".trim.contigs.good.unique.summary",sep=""),
+                   header=TRUE)
+postalnsum <- fread(paste(fldr,"/",fn,
+                          ".trim.contigs.good.unique.good.filter.summary",sep=""),
+                    header=TRUE)
+preclussum <- fread(paste(fldr,"/",fn,
+                          ".trim.contigs.good.unique.good.filter.unique.precluster.summary",sep=""),
+                    header=TRUE)
+postuchimeclasssum <- fread(paste(fldr,"/",fn,".trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.summary",sep=""),
+                            header=TRUE)
+
+
+
+
+# By default (if only one taxonomy, run the code below)
+# otutaxonomy <- fread(paste(fldr,"/",fn,
+# ".trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.0.03.cons.taxonomy",
+#             sep=""),header=TRUE)
+
+
+# otherwise, we default to SILVA (for now)
+otutaxonomy <- fread(paste(fldr,"/",fn,
+                           ".trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.0.03.cons.taxonomy",
+                           sep=""),header=TRUE)
+
+taxonomy.spl <- preformattax.new(otutaxonomy)
+taxonomy.np <- taxonomy.spl %>% dplyr::select(-dplyr::contains("Prob"))    #np = no probabilities
+
+# read in reads per sample
+shared <- fread(paste(fldr,"/",fn,
+                      ".trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.opti_mcc.shared",sep=""),
+                header=TRUE)
+shared <- as.data.frame(shared)
+desgroups <- shared$Group
+shared.x <- shared[,4:ncol(shared)]    # OTU-table wihout groupnr etc
+rownames(shared.x) <- desgroups
+shared.t <- as.data.frame(t(shared.x))   # transposed: OTU's are rows, samples are columns
+shared.t.ns <- shared.t[which(rowSums(shared.t)!=1),]    # ns = no singletons
+sharedns <- data.frame(label=rep(0.03,ncol(shared.t.ns)),
+                       Group=colnames(shared.t.ns),
+                       numOtus=nrow(shared.t.ns),t(shared.t.ns))
+suppressWarnings(try(write.table(x=sharedns,file=paste(fldr,"/sharedns.shared",sep=""),
+                                 row.names=FALSE,quote=FALSE),silent=TRUE))
+
+
+#write.xlsx2(x = shared.t, file = "Results.xlsx", sheetName = "OTU_table" )
+#write.xlsx2(x = sharedns, file = "Results.xlsx",
+#            sheetName = "OTU_tablenosingletons",
+#            append = TRUE)
+
+#filter taxonomy (i.e. remove singletons from taxonomy)
+taxonomy.np.ns <- taxonomy.np[which(rownames(taxonomy.np) 
+                                    %in% rownames(shared.t.ns)),]
+
+
+```
+
+
+###Read Metadata
+```{r}
+###Read Metadata###
+
+metadata <- readxl::read_excel("MetaData.xlsx",sheet = "ForR")
+
+######metadata.tibble <- readxl::read_excel(paste0(fldr,metadatafn),sheet="ForR")
+######factdescs <- readxl::read_excel(paste0(fldr,metadatafn),sheet="FactDesc")
+
+#TODO(fpkerckh) : generic naming & format for MD? 
+metadata <- as.data.frame(metadata) #to avoid warnings/errors with rownames
+if(is.numeric(metadata$SampleName)) #check for fully numeric sample names
+{
+  #metadata$SampleName <- paste(metadata$EM,metadata$EM_Conc,metadata$Factor1,metadata$Factor2,sep=" - ")
+  metadata$SampleName <- as.character(metadata$SampleName)
+}
+rownames(metadata) <- metadata$SampleName
+metadata.smpdat <- sample_data(metadata)
+
+colnames(shared.t.ns) <- plyr::mapvalues(colnames(shared.t.ns),
+                                         from=as.character(metadata$Code),
+                                         to=as.character(metadata$SampleName)) #rename
+
+#the part above maps sample names to codes that were used for sequencing at LGC, regardless of the order in the shared file
+
+```
+
+# Bargraphs
+
+
+```{r}
+library(vegan)
+#sorteer shared.t.ns volgens samplenummer
+shared.t.ns <- shared.t.ns[, as.character(metadata$SampleName)]
+
+# calculation of relative abundances (instead of absolute reads)
+shared.t.ns.relabun <- decostand(data.frame(shared.t.ns[1:319]), 2, method = "total")
+colnames(shared.t.ns.relabun) <- colnames(shared.t.ns)
+```
+
+
+### GENUS
+```{r}
+# add taxonomy column 
+shared.t.ns.relabun$Genus <- taxonomy.np.ns$Genus
+
+#summate relative abundances in each sample per genus
+shared.t.ns.relabun.Gr <- aggregate(shared.t.ns.relabun[1:319], by=list(Category=shared.t.ns.relabun$Genus), FUN=sum)
+
+#filter out 8 most abundant genusses
+shared.t.ns.relabun.Gr$Sums <- rowSums(shared.t.ns.relabun.Gr[2:320])   #take rowsums
+shared.t.ns.relabun.Gr <- shared.t.ns.relabun.Gr[order(-shared.t.ns.relabun.Gr$Sums),]  #order columns on value of the rowsums
+shared.t.ns.relabun.Gr.top8 <- shared.t.ns.relabun.Gr[1:8,]   #take first 8 Genera's
+shared.t.ns.relabun.Gr.top8[9,2:321] <- colSums(shared.t.ns.relabun.Gr[9:175,2:321])  #add 9th row as a sum of all the rest
+
+#adding "Other" on nineth place of first column
+shared.t.ns.relabun.Gr.top8$Category <- as.character(shared.t.ns.relabun.Gr.top8$Category)
+shared.t.ns.relabun.Gr.top8$Category[9] <- c("Other")
+shared.t.ns.relabun.Gr.top8$Category <- as.factor(shared.t.ns.relabun.Gr.top8$Category)
+
+shared.t.ns.relabun.Gr.top8$Sums <- NULL  #remove sums column
+
+#rearrange data-table in order to be able to add metadata
+shared.t.ns.relabun.Gr.top8.R <- tidyr::gather(shared.t.ns.relabun.Gr.top8,key = "SampleName", value = "RelativeAbundance",2:320)
+
+#add metadata
+shared.merge.gen <- merge(shared.t.ns.relabun.Gr.top8.R,metadata[2:6], by = "SampleName")
+shared.merge.gen <- dplyr::arrange(shared.merge.gen,as.numeric(shared.merge.gen$SampleName))
+shared.merge.gen <- unite(shared.merge.gen, Treatment, c(EM, EM_Conc), remove=FALSE, sep =' - ')
+
+#plot bargraphs
+
+BarOrder <- c("Other","Prevotella","Parabacteroides","Lachnospiraceae_unclassified","Faecalibacterium","Enterobacteriaceae_unclassified","Blautia","Bacteroides","Alistipes" )
+
+X.order <- c("CMC - 0.005","CMC - 0.05","CMC - 0.5","P80 - 0.005", "P80 - 0.05","P80 - 0.5","SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+X.order.RL <- c("Control - 0","RL - 0.005","RL - 0.05","RL - 0.5")
+
+#position_fill(reverse = TRUE)
+barplot.genus.me <-ggplot(data=shared.merge.gen, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.top8$Category)))) +
+  geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
+  facet_grid(Factor2~Factor1)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Genus")+
+  ylab("Relative Abundance")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
+  labs(fill = "Top 8 Genus")+
+  scale_x_discrete(limits=X.order)
+barplot.genus.me
+
+pdf("Plot_Batch_Illumina_Run3_Genera.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.genus.me
+dev.off()
+
+barplot.genus.me.RL <-ggplot(data=shared.merge.gen, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.top8$Category)))) +
+  geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
+  facet_grid(Factor2~Factor1)+
+  theme_minimal(base_size = 10)+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Genus")+
+  ylab("Relative Abundance")+
+  theme(axis.text.x=element_text(angle=90, hjust=1))+
+  labs(fill = "Top 8 Genus")+
+  scale_x_discrete(limits=c("Control - 0","RL - 0.005","RL - 0.05","RL - 0.5"))
+barplot.genus.me.RL
+
+pdf("Plot_Batch_Illumina_Run3_Genera.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.genus.me.RL
+dev.off()
+
+
+## plot only controls
+barplot.genus.me <-ggplot(data=shared.merge.gen, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.top8$Category)))) +
+  geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
+  facet_grid(Factor2~Factor1)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Genus")+
+  ylab("Relative Abundance")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
+  labs(fill = "Top 8 Genus")+
+  scale_x_discrete(limits=X.order)
+barplot.genus.me
+
+#levels (as.factor(shared.merge.gen$Treatment))
+
+
+#plot only Entero's
+shared.merge.gen.Ent <- shared.merge.gen %>%  filter(as.factor(shared.merge.gen$Category) == "Enterobacteriaceae_unclassified")
+
+
+Abs.Ent <- shared.t.ns[2,]
+Rel.Ent <- shared.t.ns.relabun[2,1:255]
+
+Ent.data <- rbind(Abs.Ent,Rel.Ent)
+rownames(Ent.data) <- c("Abs.Enterobacteriaceae","Rel.Enterobacteriaceae")
+Ent.data <- data.frame(t(Ent.data))
+Ent.data$SampleName <- rownames(Ent.data)
+
+#add metadata
+Ent.data.merge <- merge(Ent.data,metadata[2:6], by = "SampleName")
+Ent.data.merge <- dplyr::arrange(Ent.data.merge,as.numeric(Ent.data.merge$SampleName))
+Ent.data.merge <- unite(Ent.data.merge, Treatment, c(EM, EM_Conc), remove=FALSE, sep =' - ')
+Ent.data.merge$Rel.Enterobacteriaceae <-Ent.data.merge$Rel.Enterobacteriaceae *3*10000
+
+#rearrange data-table in order to be able to add metadata
+Ent.data.merge.R <- tidyr::gather(Ent.data.merge,key = "RelAbs", value =Abundance,c("Abs.Enterobacteriaceae","Rel.Enterobacteriaceae"))
+
+barplot.Entero <-ggplot(data=Ent.data.merge.R, aes(x= Treatment,y = Abundance, fill = as.factor(RelAbs))) +
+  geom_bar(stat ="identity", position ="dodge")+  
+  scale_y_continuous(sec.axis = sec_axis(trans = ~./(3*10000),name = "Rel.Abundance"))+
+  facet_grid(Factor2~Factor1)+
+  theme_minimal()+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Enterobacteriaceae")+
+  ylab("Relative Abundance")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 8),axis.text.y=element_text( size = 8))+
+  labs(fill = "Abundance")+
+  scale_x_discrete(limits=X.order)+
+  theme(legend.position="bottom")
+barplot.Entero
+
+png('Plot_EnterobacteriaceaeAbundance_8Donors.png', res = 300, width = 700, height = 300)
+barplot.Entero
+dev.off()
+
+barplot.Entero.2 <-ggplot(data=Ent.data.merge.R, aes(x= Treatment,y = Abundance, fill = as.factor(RelAbs))) +
+  geom_bar(stat ="identity", position ="dodge")+  
+  scale_y_continuous(sec.axis = sec_axis(trans = ~./(3*10000),name = "Rel.Abundance"))+
+  facet_grid(RelAbs~Factor1)+
+  theme_minimal()+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Enterobacteriaceae")+
+  ylab("Abundance")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text( size = 6))+
+  labs(fill = "Abundance")+
+  scale_x_discrete(limits=X.order)+
+  theme(legend.position="bottom")
+barplot.Entero.2
+
+png('Plot_EnterobacteriaceaeRelAbs_8Donors.png', res = 300, width = 700, height = 300)
+barplot.Entero
+dev.off()
+
+#only controls3
+Ent.data.merge.R$Treatment <- as.factor(Ent.data.merge.R$Treatment)
+Ent.data.merge.R.Contr <- dplyr::filter(Ent.data.merge.R,Treatment == "Control - 0" )
+
+barplot.Entero.Contr <-ggplot(data=Ent.data.merge.R.Contr, aes(x= as.factor(Factor1),y = Abundance, fill = as.factor(RelAbs))) +
+  geom_bar(stat ="identity", position ="dodge")+  
+  scale_y_continuous(sec.axis = sec_axis(trans = ~./(3*10000),name = "Rel.Abundance"))+
+  #facet_grid(RelAbs)+
+  theme_minimal()+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Enterobacteriaceae Control")+
+  ylab("Abundance")+
+  xlab("Donor")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 10),axis.text.y=element_text( size = 10))+
+  labs(fill = "Abundance")+
+  theme(legend.position="bottom")
+barplot.Entero.Contr
+```
+
+### FAMILY 
+```{r}
+### FAMILY ###
+# add taxonomy column 
+shared.t.ns.relabun$Familia <- taxonomy.np.ns$Familia
+
+#summate relative abundances in each sample per genus
+shared.t.ns.relabun.Gr.fam <- aggregate(shared.t.ns.relabun[1:255], by=list(Category=shared.t.ns.relabun$Familia), FUN=sum)
+
+#filter out 8 most abundant genusses
+shared.t.ns.relabun.Gr.fam$Sums <- rowSums (shared.t.ns.relabun.Gr.fam[2:256])
+shared.t.ns.relabun.Gr.fam <- shared.t.ns.relabun.Gr.fam[order(-shared.t.ns.relabun.Gr.fam$Sums),]
+shared.t.ns.relabun.Gr.fam.top8 <- shared.t.ns.relabun.Gr.fam[1:8,]
+Nfam = nrow(shared.t.ns.relabun.Gr.fam)
+shared.t.ns.relabun.Gr.fam.top8[9,2:257] <- colSums(shared.t.ns.relabun.Gr.fam[9:Nfam,2:257])  
+
+#adding "Other" on nineth place of first column
+shared.t.ns.relabun.Gr.fam.top8$Category <- as.character(shared.t.ns.relabun.Gr.fam.top8$Category)
+shared.t.ns.relabun.Gr.fam.top8$Category[9] <- c("Other")
+shared.t.ns.relabun.Gr.fam.top8$Category <- as.factor(shared.t.ns.relabun.Gr.fam.top8$Category)
+
+#remove Sums-column (was only used for picking out most abundant)
+shared.t.ns.relabun.Gr.fam.top8$Sums <- NULL
+
+#rearrange data-table in order to be able to add metadata
+shared.t.ns.relabun.Gr.fam.top8.R <- tidyr::gather(shared.t.ns.relabun.Gr.fam.top8,key = "SampleName", value = "RelativeAbundance",2:256)
+
+#add metadata
+shared.merge.Fam <- merge(shared.t.ns.relabun.Gr.fam.top8.R,metadata[2:6], by = "SampleName")
+shared.merge.Fam <- dplyr::arrange(shared.merge.Fam,as.numeric(shared.merge.Fam$SampleName))
+shared.merge.Fam <- unite(shared.merge.Fam, Treatment, c(EM, EM_Conc), remove=FALSE, sep =' - ')
+
+#plot bargraphs
+
+X.order <- c("CMC - 0.005","CMC - 0.05","CMC - 0.5","P80 - 0.005", "P80 - 0.05","P80 - 0.5","SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+X.order.RL <- c("Control - 0","RL - 0.005","RL - 0.05","RL - 0.5")
+
+barplot.fam.me <-ggplot(data=shared.merge.Fam, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.fam.top8$Category)))) +
+  geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
+  facet_grid(Factor2~Factor1)+
+  theme_minimal(base_size = 10)+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Family")+
+  ylab("Relative Abundance")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
+  labs(fill = "Top 8 Families")+
+  scale_x_discrete(limits=X.order)
+barplot.fam.me
+
+barplot.fam.me.RL <-ggplot(data=shared.merge.Fam, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.fam.top8$Category)))) +
+  geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
+  facet_grid(Factor2~Factor1)+
+  theme_minimal(base_size = 10)+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Family")+
+  ylab("Relative Abundance")+
+  theme(axis.text.x=element_text(angle=90, hjust=1))+
+  labs(fill = "Top 8 Families")+
+  scale_x_discrete(limits=X.order.RL)
+barplot.fam.me.RL
+
+
+
+
+
+```
+
+```{r}
+### ORDO
+
+
+### CLASSIS
+```
+
+### PHYLUM
+```{r}
+# add taxonomy column 
+shared.t.ns.relabun$Phylum <- taxonomy.np.ns$Phylum
+
+#summate relative abundances in each sample per genus
+shared.t.ns.relabun.Gr.phyl <- aggregate(shared.t.ns.relabun[1:255], by=list(Category=shared.t.ns.relabun$Phylum), FUN=sum)
+
+#filter out 8 most abundant genusses
+shared.t.ns.relabun.Gr.phyl$Sums <- rowSums(shared.t.ns.relabun.Gr.phyl[2:256])
+shared.t.ns.relabun.Gr.phyl <- shared.t.ns.relabun.Gr.phyl[order(-shared.t.ns.relabun.Gr.phyl$Sums),]
+shared.t.ns.relabun.Gr.phyl.top8 <- shared.t.ns.relabun.Gr.phyl[1:8,]
+Nphyl = nrow(shared.t.ns.relabun.Gr.phyl)
+shared.t.ns.relabun.Gr.phyl.top8[9,2:257] <- colSums(shared.t.ns.relabun.Gr.phyl[9:Nphyl,2:257])
+
+#adding "Other" on nineth place of first column
+shared.t.ns.relabun.Gr.phyl.top8$Category <- as.character(shared.t.ns.relabun.Gr.phyl.top8$Category)
+shared.t.ns.relabun.Gr.phyl.top8$Category[9] <- c("Other")
+shared.t.ns.relabun.Gr.phyl.top8$Category <- as.factor(shared.t.ns.relabun.Gr.phyl.top8$Category)
+
+shared.t.ns.relabun.Gr.phyl.top8$Sums <- NULL
+
+#rearrange data-table in order to be able to add metadata
+shared.t.ns.relabun.Gr.phyl.top8.R <- tidyr::gather(shared.t.ns.relabun.Gr.phyl.top8,key = "SampleName", value = "RelativeAbundance",2:256)
+
+#add metadata
+shared.merge.phyl <- merge(shared.t.ns.relabun.Gr.phyl.top8.R,metadata[2:6], by = "SampleName")
+shared.merge.phyl <- dplyr::arrange(shared.merge.phyl,as.numeric(shared.merge.phyl$SampleName))
+shared.merge.phyl <- unite(shared.merge.phyl, Treatment, c(EM, EM_Conc), remove=FALSE, sep =' - ')
+
+#plot bargraphs
+
+X.order <- c("CMC - 0.005","CMC - 0.05","CMC - 0.5","P80 - 0.005", "P80 - 0.05","P80 - 0.5","SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+X.order.RL <- c("Control - 0","RL - 0.005","RL - 0.05","RL - 0.5")
+
+#position_fill(reverse = TRUE)
+
+barplot.phylum.me <-ggplot(data=shared.merge.phyl, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.phyl.top8$Category)))) +
+  geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
+  facet_grid(Factor2~Factor1)+
+  theme_minimal(base_size = 10)+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Phylum")+
+  ylab("Relative Abundance")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6), axis.text.y = element_text(size = 6))+
+  labs(fill = "Top 8 Phyla")+
+  scale_x_discrete(limits=X.order)
+barplot.phylum.me
+
+
+
+barplot.phylum.me.RL <-ggplot(data=shared.merge.phyl, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.phyl.top8$Category)))) +
+  geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
+  facet_grid(Factor2~Factor1)+
+  theme_minimal(base_size = 10)+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Phylum")+
+  ylab("Relative Abundance")+
+  theme(axis.text.x=element_text(angle=90, hjust=1))+
+  labs(fill = "Top 8 Phyla")+
+  scale_x_discrete(limits=c("Control - 0","RL - 0.005","RL - 0.05","RL - 0.5"))
+barplot.phylum.me.RL
+
+
+### write out plots into pdf file
+pdf("Plot_Batch_Illumina_Run2_Classification.pdf",width = 12, height = 4, pointsize = 10)
+    barplot.genus.me
+    barplot.fam.me
+    barplot.phylum.me
+    barplot.genus.me.RL
+    barplot.fam.me.RL
+    barplot.phylum.me.RL
+dev.off()
+    
+png ("Plot_Batch_Illumina_Run2_Classif_Genus.png", height = 1200, width = 2200, res = 150)
+   barplot.genus.me
+   dev.off()
+png ("Plot_Batch_Illumina_Run2_Classif_Family.png",height = 1200, width = 2200, res = 150)
+    barplot.fam.me
+png ("Plot_Batch_Illumina_Run2_Classif_Phylum.png", height = 1200, width = 2200, res = 150)
+    barplot.phylum.me
+    dev.off()
+png ("Plot_Batch_Illumina_Run2_Classif_Gen_RL.png",height = 1200, width = 2200, res = 150)
+    barplot.genus.me.RL
+    dev.off()
+png ("Plot_Batch_Illumina_Run2_Classif_Fam_RL.png",height = 1200, width = 2200, res = 150)
+    barplot.fam.me.RL
+    dev.off()
+png ("Plot_Batch_Illumina_Run2_Classif_Phyl_RL.png",height = 1200, width = 2200, res = 150)
+    barplot.phylum.me.RL
+dev.off()
+
+
+```
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
