@@ -34,8 +34,10 @@ opts_chunk$set(cache=TRUE, autodep = TRUE)
 ```{r}
 #### load required packages ####
 library(scales)   #for percent formatting
-library(ggplot2)  #for adequate plotting
-library(plyr)     #data wrangling (mapvalues)
+library(ggplot2)
+install.packages("ggplotify")
+library(ggplotify)#for adequate plotting
+library(dplyr)     #data wrangling (mapvalues)
 suppressPackageStartupMessages(library(dplyr))    #data wrangling
 library(tidyr)    #tidy data
 suppressPackageStartupMessages(library(reshape2)) #for melt function
@@ -467,28 +469,43 @@ dev.off()
 
 
 ## plot only controls
-barplot.genus.me <-ggplot(data=shared.merge.gen, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.top8$Category)))) +
-  geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
-  facet_grid(Factor2~Factor1)+
-  theme_minimal()+ 
-  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
-  scale_fill_brewer(palette="Set1")+
-  ggtitle("Batch Experiments - Barplot Genus")+
-  ylab("Relative Abundance")+
-   theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
-  labs(fill = "Top 8 Genus")+
-  scale_x_discrete(limits=X.order)
-barplot.genus.me
+shared.merge.gen$Treatment <- as.factor(shared.merge.gen$Treatment)
+shared.merge.gen.Contr <- dplyr::filter(shared.merge.gen,Treatment == "Control - 0" )
 
+barplot.gen.Contr <-ggplot(data=shared.merge.gen.Contr, aes(x= as.factor(Factor1),y = RelativeAbundance, fill = factor(Category,levels=as.character(shared.t.ns.relabun.Gr.top8$Category)))) +
+  geom_bar(stat ="identity",position = position_fill(reverse = TRUE))+  
+  facet_grid(Factor2~1)+
+  theme_minimal()+ 
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Batch Experiments - Barplot Controls")+
+  ylab("Abundance")+
+  xlab("Donor")+
+  theme(axis.text.x=element_text(angle=0, hjust=1, size = 10),axis.text.y=element_text( size = 10))+
+  labs(fill = "Relative Abundance")
+barplot.gen.Contr
+
+pdf("Plot_Batch_Illumina_Run3_Genera_Controls.pdf",width = 10, height = 8, pointsize = 10)
+    barplot.gen.Contr
+dev.off()
+
+pdf("Plot_Batch_Illumina_Run3_Genera_Controls_ppt.pdf",width = 5, height = 4, pointsize = 10)
+    barplot.gen.Contr
+dev.off()
+
+barp <- as.ggplot(barplot.gen.Contr)
+highqualgraphR(barp,filename = "Barplot_Batch_Ill_Run3_Genera_Controls",
+               extension = c("png","tiff"),pointsize=12)
 #levels (as.factor(shared.merge.gen$Treatment))
 
 
-#plot only Entero's
+#plot OTU-1
+
+
 shared.merge.gen.Ent <- shared.merge.gen %>%  filter(as.factor(shared.merge.gen$Category) == "Enterobacteriaceae_unclassified")
 
 
 Abs.Ent <- shared.t.ns[2,]
-Rel.Ent <- shared.t.ns.relabun[2,1:255]
+Rel.Ent <- shared.t.ns.relabun[2,1:320]
 
 Ent.data <- rbind(Abs.Ent,Rel.Ent)
 rownames(Ent.data) <- c("Abs.Enterobacteriaceae","Rel.Enterobacteriaceae")
@@ -540,7 +557,7 @@ png('Plot_EnterobacteriaceaeRelAbs_8Donors.png', res = 300, width = 700, height 
 barplot.Entero
 dev.off()
 
-#only controls3
+#only controls
 Ent.data.merge.R$Treatment <- as.factor(Ent.data.merge.R$Treatment)
 Ent.data.merge.R.Contr <- dplyr::filter(Ent.data.merge.R,Treatment == "Control - 0" )
 
