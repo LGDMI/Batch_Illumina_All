@@ -616,14 +616,14 @@ barplot.Entero.Contr
 shared.t.ns.relabun$Familia <- taxonomy.np.ns$Familia
 
 #summate relative abundances in each sample per genus
-shared.t.ns.relabun.Gr.fam <- aggregate(shared.t.ns.relabun[1:255], by=list(Category=shared.t.ns.relabun$Familia), FUN=sum)
+shared.t.ns.relabun.Gr.fam <- aggregate(shared.t.ns.relabun[1:319], by=list(Category=shared.t.ns.relabun$Familia), FUN=sum)
 
 #filter out 8 most abundant genusses
-shared.t.ns.relabun.Gr.fam$Sums <- rowSums (shared.t.ns.relabun.Gr.fam[2:256])
+shared.t.ns.relabun.Gr.fam$Sums <- rowSums (shared.t.ns.relabun.Gr.fam[2:320])
 shared.t.ns.relabun.Gr.fam <- shared.t.ns.relabun.Gr.fam[order(-shared.t.ns.relabun.Gr.fam$Sums),]
 shared.t.ns.relabun.Gr.fam.top8 <- shared.t.ns.relabun.Gr.fam[1:8,]
 Nfam = nrow(shared.t.ns.relabun.Gr.fam)
-shared.t.ns.relabun.Gr.fam.top8[9,2:257] <- colSums(shared.t.ns.relabun.Gr.fam[9:Nfam,2:257])  
+shared.t.ns.relabun.Gr.fam.top8[9,2:321] <- colSums(shared.t.ns.relabun.Gr.fam[9:Nfam,2:321])  
 
 #adding "Other" on nineth place of first column
 shared.t.ns.relabun.Gr.fam.top8$Category <- as.character(shared.t.ns.relabun.Gr.fam.top8$Category)
@@ -634,7 +634,7 @@ shared.t.ns.relabun.Gr.fam.top8$Category <- as.factor(shared.t.ns.relabun.Gr.fam
 shared.t.ns.relabun.Gr.fam.top8$Sums <- NULL
 
 #rearrange data-table in order to be able to add metadata
-shared.t.ns.relabun.Gr.fam.top8.R <- tidyr::gather(shared.t.ns.relabun.Gr.fam.top8,key = "SampleName", value = "RelativeAbundance",2:256)
+shared.t.ns.relabun.Gr.fam.top8.R <- tidyr::gather(shared.t.ns.relabun.Gr.fam.top8,key = "SampleName", value = "RelativeAbundance",2:320)
 
 #add metadata
 shared.merge.Fam <- merge(shared.t.ns.relabun.Gr.fam.top8.R,metadata[2:6], by = "SampleName")
@@ -651,6 +651,7 @@ barplot.fam.me <-ggplot(data=shared.merge.Fam, aes(x= Treatment, y=RelativeAbund
   geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
   facet_grid(Factor2~Factor1)+
   theme_minimal(base_size = 10)+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
   scale_fill_brewer(palette="Set1")+
   ggtitle("Batch Experiments - Barplot Family")+
   ylab("Relative Abundance")+
@@ -658,6 +659,11 @@ barplot.fam.me <-ggplot(data=shared.merge.Fam, aes(x= Treatment, y=RelativeAbund
   labs(fill = "Top 8 Families")+
   scale_x_discrete(limits=X.order)
 barplot.fam.me
+
+
+pdf("Plot_Batch_Illumina_Run3_Familia.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.fam.me
+dev.off()
 
 barplot.fam.me.RL <-ggplot(data=shared.merge.Fam, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.fam.top8$Category)))) +
   geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
@@ -690,14 +696,14 @@ barplot.fam.me.RL
 shared.t.ns.relabun$Phylum <- taxonomy.np.ns$Phylum
 
 #summate relative abundances in each sample per genus
-shared.t.ns.relabun.Gr.phyl <- aggregate(shared.t.ns.relabun[1:255], by=list(Category=shared.t.ns.relabun$Phylum), FUN=sum)
+shared.t.ns.relabun.Gr.phyl <- aggregate(shared.t.ns.relabun[1:319], by=list(Category=shared.t.ns.relabun$Phylum), FUN=sum)
 
 #filter out 8 most abundant genusses
-shared.t.ns.relabun.Gr.phyl$Sums <- rowSums(shared.t.ns.relabun.Gr.phyl[2:256])
+shared.t.ns.relabun.Gr.phyl$Sums <- rowSums(shared.t.ns.relabun.Gr.phyl[2:320])
 shared.t.ns.relabun.Gr.phyl <- shared.t.ns.relabun.Gr.phyl[order(-shared.t.ns.relabun.Gr.phyl$Sums),]
 shared.t.ns.relabun.Gr.phyl.top8 <- shared.t.ns.relabun.Gr.phyl[1:8,]
 Nphyl = nrow(shared.t.ns.relabun.Gr.phyl)
-shared.t.ns.relabun.Gr.phyl.top8[9,2:257] <- colSums(shared.t.ns.relabun.Gr.phyl[9:Nphyl,2:257])
+shared.t.ns.relabun.Gr.phyl.top8[9,2:321] <- colSums(shared.t.ns.relabun.Gr.phyl[9:Nphyl,2:321])
 
 #adding "Other" on nineth place of first column
 shared.t.ns.relabun.Gr.phyl.top8$Category <- as.character(shared.t.ns.relabun.Gr.phyl.top8$Category)
@@ -707,7 +713,7 @@ shared.t.ns.relabun.Gr.phyl.top8$Category <- as.factor(shared.t.ns.relabun.Gr.ph
 shared.t.ns.relabun.Gr.phyl.top8$Sums <- NULL
 
 #rearrange data-table in order to be able to add metadata
-shared.t.ns.relabun.Gr.phyl.top8.R <- tidyr::gather(shared.t.ns.relabun.Gr.phyl.top8,key = "SampleName", value = "RelativeAbundance",2:256)
+shared.t.ns.relabun.Gr.phyl.top8.R <- tidyr::gather(shared.t.ns.relabun.Gr.phyl.top8,key = "SampleName", value = "RelativeAbundance",2:320)
 
 #add metadata
 shared.merge.phyl <- merge(shared.t.ns.relabun.Gr.phyl.top8.R,metadata[2:6], by = "SampleName")
@@ -734,7 +740,9 @@ barplot.phylum.me <-ggplot(data=shared.merge.phyl, aes(x= Treatment, y=RelativeA
   scale_x_discrete(limits=X.order)
 barplot.phylum.me
 
-
+pdf("Plot_Batch_Illumina_Run3_Phyla.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.phylum.me
+dev.off()
 
 barplot.phylum.me.RL <-ggplot(data=shared.merge.phyl, aes(x= Treatment, y=RelativeAbundance, fill = factor(Category, levels=as.character(shared.t.ns.relabun.Gr.phyl.top8$Category)))) +
   geom_bar(stat="identity", position = position_fill(reverse = TRUE))+  
