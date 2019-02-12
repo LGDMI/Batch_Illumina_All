@@ -789,6 +789,341 @@ dev.off()
 ```
 
 
+##RICHNESS CALCULATORS
+```{r} 
+lrgst <- rownames(groupcounts)[1] #sample with most reads
+grps <- names(sort(colSums(shared.t),decreasing = TRUE)) #sample names
+#cornames <- plyr::mapvalues(grps,from=as.character(metadata$Code),to=as.character(metadata$SampleName))
+colcurveg <- function(fnpref,groups,fnpost,errorbars=FALSE,printing=FALSE)
+{
+  #function to process mothur generated alpha-diversity
+  #INPUT
+  #fnpref: file location
+  #groups: (ordered) names of the samples
+  #fnpost: name of calculator used
+  #errorbars: whether errorbars should be plotted or not. 
+  #TODO: consistency check for errorbar data availability
+  #printing: logical for printing the plot
+  #output: plot and underlying data frame
+  calcdfcomplete<-data.frame()
+  for(i in 1:length(groups))
+  {
+    j<-groups[i]
+    tmpsmp<-read.table(paste(fnpref,j,".",fnpost,sep=""),header=TRUE)
+    repcount<-nrow(tmpsmp)
+    calcdfcomplete.tmp <- cbind(tmpsmp,rep(j,repcount))
+    calcdfcomplete <- rbind(calcdfcomplete,calcdfcomplete.tmp)
+  }
+  names(calcdfcomplete)[ncol(calcdfcomplete)]<-"Sample"
+  calcgg <- ggplot(aes(x=numsampled,y=X0.03,color=Sample),data=calcdfcomplete) + 
+            geom_line() + ylab(paste(fnpost," index",sep=""))
+  if(errorbars==TRUE)
+  {
+    calcggerr <- calcgg + geom_errorbar(aes(ymin=lci,ymax=hci))
+    if(printing==TRUE){print(calcggerr)}
+    reslist <- list(plotgg=calcggerr,underlyingdf=calcdfcomplete)
+  }else{
+    if(printing==TRUE){print(calcgg)}
+    reslist <- list(plotgg=calcgg,underlyingdf=calcdfcomplete)
+  }
+  
+  return(reslist)
+}
+
+
+#### SPECIES calculator #####
+set.seed(456789) #set RNG pseudorandom number
+expshared <- shared.t.ns
+calcspecies <- function(x)
+{
+  #x are the counts of an individual sample
+  #some consistency checks
+  if(length(x!=0)>10) # the sample has to have at least 10 species
+  {
+    if(sum(x[which(x!=0)])>length(x[which(x!=0)])) #there has to be at least some variation and not just all 0 counts
+    {
+    inputdf <- data.frame(j=as.numeric(as.character(rownames(as.matrix(table(x))))),
+                          n_j=as.vector(table(x)))
+    inputdf <- subset(inputdf,subset=inputdf$j!=0) 
+    #estimators don't work with 0 observations
+    chaores <- chao1984(inputdf)
+    suppressWarnings(chaobung <- SPECIES::ChaoBunge(inputdf,t=10))
+    suppressWarnings(ace1res <- SPECIES::ChaoLee1992(inputdf,t=10,method="ACE-1"))
+    #pcgres <- SPECIES::pcg(inputdf) #too computationally intensive , overparametrized
+    #unplmeres <- SPECIES::unpmle(inputdf,C=1,b=20,seed=456789,dis=0) #quite computationally intensive, certainly for larger datasets
+    #pnplmeres <- SPECIES::pnpmle(inputdf,C=1,b=20,seed=456789,dis=0) #quite computationally intensive, certainly for larger datasets
+    #jacknres <- invisible(suppressWarnings(suppressMessages(SPECIES::jackknife(inputdf)))) #could not suppress output
+    resdf <- data.frame(Methods=c("Chao1984","ChaoBunge2002","ACE-1"),
+                        Nhat=c(chaores$Nhat,chaobung$Nhat,ace1res$Nhat),
+                        SE_low=c(chaores$Nhat-chaores$SE,chaobung$Nhat-chaobung$SE,ace1res$Nhat-ace1res$SE),
+                        SE_high=c(chaores$Nhat+chaores$SE,chaobung$Nhat+chaobung$SE,ace1res$Nhat+ace1res$SE),
+                        CI_lb=c(chaores$CI[1],chaobung$CI[1],ace1res$CI[1]),
+                        CI_ub=c(chaores$CI[2],chaobung$CI[2],ace1res$CI[2]))
+    }else{
+      resdf <- data.frame(Methods=c("Chao1984","ChaoBunge2002","ACE-1"),
+                        Nhat=c(NA,NA,NA),
+                        SE_low=c(NA,NA,NA),
+                        SE_high=c(NA,NA,NA),
+                        CI_lb=c(NA,NA,NA),
+                        CI_ub=c(NA,NA,NA))
+    }
+    
+  }else{
+    resdf <- data.frame(Methods=c("Chao1984","ChaoBunge2002","ACE-1"),
+                        Nhat=c(NA,NA,NA),
+                        SE_low=c(NA,NA,NA),
+                        SE_high=c(NA,NA,NA),
+                        CI_lb=c(NA,NA,NA),
+                        CI_ub=c(NA,NA,NA))
+  }
+  return(resdf)
+}
+specres <- list()
+for(i in 1:length(seq(100,max(colSums(expshared)),by=100))) 
+  #maybe use another number than 100 depending upon dataset size
+{
+  sampz <- seq(100,max(colSums(expshared)),by=100)[i]
+  expsubs <- expshared[,which(colSums(expshared)>=sampz)]
+  rareset <- as.data.frame(t(rrarefy(t(expsubs),sampz)))
+  if(is.null(dim(expsubs))) #only if only one sample left with certain depth
+  {
+    colnames(rareset) <- names(which(colSums(expshared)>=sampz))
+  }
+  speclist <- mclapply(rareset,calcspecies,mc.cores=12, mc.cleanup = TRUE)
+  specres[[i]] <- speclist
+}
+plotlist <- list()
+for(i in names(specres[[1]]))
+{
+  smpdf <- ldply(specres,function(x)eval(parse(text=paste("x$`",i,"`",sep=""))))
+  smplist <- lapply(specres,function(x)eval(parse(text=paste("x$`",i,"`",sep=""))))
+  subscount <- rep(seq(100,sum(eval(parse(text = paste("expshared$`",i,"`",sep="")))),by=100),each=3)
+  smpname <- i
+  plotdf <- data.frame(smpdf,sampsize=subscount,samplename=rep(smpname,nrow(smpdf)))
+  plotlist[[i]]<-plotdf
+}
+# TODO: implement this at a later stage, make sure that the df stores the standard errors too
+plotlistdf <- data.frame(plotlist[[1]])
+for(i in 2:length(plotlist))
+{
+  plotlistdf <- rbind(plotlistdf,plotlist[[i]])
+}
+
+chao84plotdata <- plotlistdf %>%  dplyr::filter(Methods=="Chao1984")
+#chao84plotdata$samplename <- mapvalues(chao84plotdata$samplename,
+#                                       from=levels(chao84plotdata$samplename),
+#                                       to=cornames)
+
+chaobungeplotdata <- plotlistdf %>%  dplyr::filter(Methods=="ChaoBunge2002")
+#chaobungeplotdata$samplename <- mapvalues(chaobungeplotdata$samplename,
+#                                       from=levels(chaobungeplotdata$samplename),
+#                                       to=cornames)
+
+ace1plotdata <- plotlistdf %>% dplyr::filter(Methods=="ACE-1")
+#ace1plotdata$samplename <- mapvalues(ace1plotdata$samplename,
+#                                       from=levels(ace1plotdata$samplename),
+#                                       to=cornames)
+
+c84gg <- ggplot(aes(x=sampsize,y=Nhat,color=samplename),data=chao84plotdata) +
+          geom_point() + geom_errorbar(aes(ymin=CI_lb,ymax=CI_ub)) + 
+  xlab("Number of reads sampled") + ylab(bquote(hat(N)[Chao~1984~lower~bound~estimator]))
+c84gg
+highqualgraphR(c84gg,filename = "Chao1984_collectorcurve",extension = c("png"))
+# cbgg <- ggplot(aes(x=sampsize,y=Nhat,color=samplename),data=chaobungeplotdata) +
+#           geom_point() + geom_errorbar(aes(ymin=CI_lb,ymax=CI_ub)) + 
+#   xlab("Number of reads sampled") + ylab(bquote(hat(N)[Poisson~Gama~model~coverage~duplication~estimator]))
+#not stable at all
+a1gg <- ggplot(aes(x=sampsize,y=Nhat,color=samplename),data=ace1plotdata) +
+          geom_point() + geom_errorbar(aes(ymin=CI_lb,ymax=CI_ub)) + 
+  xlab("Number of reads sampled") + ylab(bquote(hat(N)[ACE~1~estimator]))
+a1gg
+highqualgraphR(a1gg,filename = "ACE1_collectorcurve",extension = c("png"))
+Below we list the table with several richness estimators (per sample) and their confidence intervals.
+
+fullsetrichcalc <- mclapply(shared.t.ns,calcspecies,mc.cores = 12,mc.cleanup = TRUE)
+tablrichdf <- ldply(fullsetrichcalc,function(x)x)
+names(tablrichdf)[1]<-"Sample name"
+kable(tablrichdf,caption = "Richness estimators with standard errors and 95\\% confidence interval")
+write.csv(tablrichdf,"Richness_estimated.csv")
+
+
+##Diversity estimators
+csumssto <- colSums(shared.t.ns)
+vegplotsto <- data.frame(numSampled=rep(1,ncol(shared.t.ns)),Sample=colnames(shared.t.ns),
+                         Shannon=0,Invsimpson=1,Simpson=0,Pielou=0)
+for(i in seq(100,max(colSums(shared.t.ns)),by=round(max(colSums(shared.t.ns))/1000L)))
+{
+  colselsto <- csumssto >= i
+  ipraresto <- shared.t.ns[,colselsto]
+  raredsto <- rrarefy(t(ipraresto),sample=i)
+  shansto <- diversity(raredsto,index="shannon")
+  simpsto <- diversity(raredsto,index="simpson")
+  invsimpsto <- diversity(raredsto,index="invsimpson")
+  pielousto <- diversity(raredsto,index="shannon")/specnumber(raredsto)
+  if(is.null(colnames(ipraresto)))
+  {
+    ipraresto<-data.frame(col1<-ipraresto)
+    colnames(ipraresto)<-names(csumssto[csumssto==max(csumssto)])
+  }
+  vegplotsto <- rbind(vegplotsto,data.frame(numSampled=i,Sample=colnames(ipraresto),
+                                            Shannon=as.vector(shansto),
+                                            Invsimpson=as.vector(invsimpsto),
+                                            Simpson=as.vector(simpsto),
+                                            Pielou=pielousto))
+}
+
+
+# vegplotsto$Sample <- mapvalues(vegplotsto$Sample,
+#                                from=levels(vegplotsto$Sample),
+#                                to=sub("(...).*","\\1",levels(vegplotsto$Sample)))
+
+shanplotveg <- ggplot(aes(x=numSampled,y=Shannon,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
+shanplotveg + geom_line() + ylab("Shannon diversity index (H)") + xlab("Reads sampled")
+spexp <- shanplotveg + geom_line() + ylab("Shannon diversity index (H)") + xlab("Reads sampled")
+
+highqualgraphR(spexp,filename = "Shannon_collector",extension = c("png"))
+
+simpplotveg <- ggplot(aes(x=numSampled,y=Simpson,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
+simpplotveg + geom_line() + ylab("Simpson diversity index (1-D)") + xlab("Reads sampled")
+sipexp <- simpplotveg + geom_line() + ylab("Simpson diversity index (1-D)") + xlab("Reads sampled")
+
+highqualgraphR(sipexp,filename = "Simpson_collector",extension = c("png"))
+
+invsimpplotveg <- ggplot(aes(x=numSampled,y=Invsimpson,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
+invsimpplotveg + geom_line() + ylab("Inverse Simpson diversity index (1/D)") + xlab("Reads sampled")
+invsiexp <- invsimpplotveg + geom_line() + ylab("Inverse Simpson diversity index (1/D)") + xlab("Reads sampled")
+
+
+highqualgraphR(invsiexp,filename = "Inverse_Simpson_collector",extension = c("png"))
+
+pielouplotveg <- ggplot(aes(x=numSampled,y=Pielou,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
+pielouplotveg + geom_line() + ylab("Pielou evenness index (J)") + xlab("Reads sampled")
+pieexp <- pielouplotveg + geom_line() + ylab("Pielou evenness index (J)") + xlab("Reads sampled")
+
+highqualgraphR(pieexp,filename = "Pielou_collector",extension = c("png"))
+
+The diversity estimators which are stable (i.e. the plots level off) should be considered for further evaluation. Their values on the full dataset (without singletons) are listed in the table below.
+
+vegplotdf <- vegplotsto
+#vegplotdf$Sample <- plyr::mapvalues(vegplotdf$Sample,
+#                                    from = levels(vegplotdf$Sample),
+#                                    names(shared.t.ns))
+vegtable <- vegplotdf  %>%  group_by(Sample)  %>% dplyr::filter(numSampled==max(numSampled)) %>% 
+                dplyr::filter(numSampled!=1) #%>%  arrange(Sample) , leave arranged by numSampled
+#if numSampled == 1 then there was a prob with the sample size < 100 reads
+kable(vegtable,caption="Diversity indices on the full dataset")
+write.csv(vegtable,"Diversity_vegan.csv")
+```
+##Rarefaction curves
+```{r}
+
+Although it can be considered part of sequence quality control, we show rarefaction curves here as a measure if sampling was deep enough to cover all observed diversity. After removal of the singletons, the curves were drawn. For appropriate sampling depth, curves should "level off".
+
+set.seed=12345
+raredfplot <- shared.t.ns
+#colnames(raredfplot)<-sub("(...).*","\\1",colnames(raredfplot))
+
+rarecurve(t(raredfplot),step=round(max(colSums(raredfplot))/1000L),
+          cex=0.4)
+pdf(file = "figure/rarefaction_curve_nosingletons.pdf",paper = "a4r")
+rarecurve(t(raredfplot),step=round(max(colSums(raredfplot))/1000L),
+          cex=0.4)
+invisible(dev.off())
+rarecurve(t(raredfplot),sample=min(colSums(raredfplot)),
+          step=round(max(colSums(raredfplot))/1000L),cex=0.4)
+
+```
+
+#BETA DIVERSITY
+```{r}
+ set.seed(4798)
+shared.relab <- decostand(raredfplot,method="total",MARGIN=2)
+shared.cs <- shared.relab*min(colSums(shared.t.ns))
+disjac <- vegdist(t(shared.relab),method="jaccard")
+disjac.cs <- vegdist(t(shared.cs),method="jaccard")
+discyd <- vegdist(t(raredfplot),method="cao") #can handle different sample sizes
+suppressWarnings(discyd.cs <- vegdist(t(ceiling(shared.cs)),method="cao")) #can handle different sample sizes
+ 
+mdsjac <- metaMDS(disjac,trace=FALSE,try=50,trymax=2000)
+mdsjac.cs <- metaMDS(disjac.cs,trace=FALSE,try=50,trymax=5000)
+mdscyd <- metaMDS(discyd,trace=FALSE,try=50,trymax=5000)
+mdscyd.cs <- metaMDS(discyd.cs,trace=FALSE,try=50,trymax=2000)
+
+
+plot(mdsjac,type="n",display="sites")
+ordipointlabel(mdsjac,display = "sites",add=TRUE)
+colvect<-rep("blue",length(rownames(mdsjac$points)))
+brewset <- brewer.pal(8,"Set2")
+md.mdsjac <- metadata[rownames(mdsjac$points),]
+for(i in 2:nlevels(factor(md.mdsjac$Factor1))){
+  colvect[which(md.mdsjac$Factor1==levels(factor(md.mdsjac$Factor1))[i])]<- brewset[i]
+}
+points(mdsjac,pch=16,col=colvect)
+legend("bottomleft",
+       legend = levels(factor(md.mdsjac$Factor1)),
+       col=c("blue",brewset[2:nlevels(factor(md.mdsjac$Factor1))]),
+       pch = 16)
+
+plot(mdsjac.cs,type="n",display="sites")
+ordipointlabel(mdsjac.cs,display = "sites",add=TRUE)
+colvect<-rep("blue",length(rownames(mdsjac.cs$points)))
+md.mdsjac.cs <- metadata[rownames(mdsjac.cs$points),]
+for(i in 2:nlevels(factor(md.mdsjac.cs$Factor1))){
+  colvect[which(md.mdsjac.cs$Factor1==levels(factor(md.mdsjac.cs$Factor1))[i])]<- brewset[i]
+}
+points(mdsjac.cs,pch=16,col=colvect)
+legend("bottomleft",
+       legend = levels(factor(md.mdsjac.cs$Factor1)),
+       col=c("blue",brewset[2:nlevels(factor(md.mdsjac.cs$Factor1))]),
+       pch = 16)
+
+# plot(mdscyd,type="n",display="sites")
+# ordipointlabel(mdscyd,display = "sites",add=TRUE)
+# colvect<-rep("blue",length(rownames(mdscyd$points)))
+# md.mdscyd <- metadata[rownames(mdscyd$points),]
+# for(i in 2:nlevels(factor(md.mdscyd$Factor1))){
+#   colvect[which(md.mdscyd$Factor1==levels(factor(md.mdscyd$Factor1))[i])]<- brewset[i]
+# }
+# points(mdscyd,pch=16,col=colvect)
+# legend("bottomright",
+#        legend = levels(factor(md.mdscyd$Factor1)),
+#        col=c("blue",brewset[2:nlevels(factor(md.mdscyd$Factor1))]),
+#        pch = 16)
+# 
+# plot(mdscyd.cs,type="n",display="sites")
+# ordipointlabel(mdscyd.cs,display = "sites",add=TRUE)
+# colvect<-rep("blue",length(rownames(mdscyd.cs$points)))
+# colvect[which(metadata$Factor1==levels(factor(metadata$Factor1))[2])]<-"red"
+# colvect[which(metadata$Factor1==levels(factor(metadata$Factor1))[3])]<-"green"
+# points(mdscyd.cs,pch=16,col=colvect)
+# legend("bottomright",legend = levels(factor(metadata$Factor1)),col=c("blue","red","green"),pch = 16)
+# 
+# 
+stressplot(mdsjac,disjac)
+stressplot(mdsjac.cs,disjac.cs)
+# stressplot(mdscyd,discyd)
+# stressplot(mdscyd.cs,discyd.cs)
+# 
+# 
+# pcoajac <- pcoa(disjac,correction="cailliez")
+# biplot(pcoajac,t(shared.relab))
+
+# pcarelab.sel <- rda(t(shared.relab.sel))
+# biplot(pcarelab.sel,type="text",scaling=-1)
+# rdarelab.sel <- rda(t(shared.relab.sel),scale=TRUE)
+# biplot(rdarelab.sel,type="text",scaling=-1)
+# dcarelab.sel <- decorana(t(shared.relab.sel))
+# plot(dcarelab.sel,display="sites",type="text")
+# plot(dcarelab.sel,display="sites",type="text",col="red")
+# sel <- orditorp(dcarelab.sel,display = "species",priority=colSums(t(shared.relab.sel)))
+
+
+```
+# HILL NUMBERS
+```{r}
+
+
+```
 
 ## R Markdown
 
