@@ -64,6 +64,8 @@ library(devtools) #nicer session info
 library(viridis) # for color-blind nice color palettes
 library(Phenoflow)
 library(pander)
+library(plyr)
+
 
 ```
 
@@ -791,6 +793,11 @@ dev.off()
 
 ##RICHNESS CALCULATORS
 ```{r} 
+
+
+groupcounts <- data.frame(Reads = sort(colSums(shared.t.ns),
+                                       decreasing=TRUE))
+
 lrgst <- rownames(groupcounts)[1] #sample with most reads
 grps <- names(sort(colSums(shared.t),decreasing = TRUE)) #sample names
 #cornames <- plyr::mapvalues(grps,from=as.character(metadata$Code),to=as.character(metadata$SampleName))
@@ -846,6 +853,7 @@ calcspecies <- function(x)
                           n_j=as.vector(table(x)))
     inputdf <- subset(inputdf,subset=inputdf$j!=0) 
     #estimators don't work with 0 observations
+    
     chaores <- chao1984(inputdf)
     suppressWarnings(chaobung <- SPECIES::ChaoBunge(inputdf,t=10))
     suppressWarnings(ace1res <- SPECIES::ChaoLee1992(inputdf,t=10,method="ACE-1"))
@@ -853,6 +861,7 @@ calcspecies <- function(x)
     #unplmeres <- SPECIES::unpmle(inputdf,C=1,b=20,seed=456789,dis=0) #quite computationally intensive, certainly for larger datasets
     #pnplmeres <- SPECIES::pnpmle(inputdf,C=1,b=20,seed=456789,dis=0) #quite computationally intensive, certainly for larger datasets
     #jacknres <- invisible(suppressWarnings(suppressMessages(SPECIES::jackknife(inputdf)))) #could not suppress output
+    
     resdf <- data.frame(Methods=c("Chao1984","ChaoBunge2002","ACE-1"),
                         Nhat=c(chaores$Nhat,chaobung$Nhat,ace1res$Nhat),
                         SE_low=c(chaores$Nhat-chaores$SE,chaobung$Nhat-chaobung$SE,ace1res$Nhat-ace1res$SE),
@@ -878,13 +887,19 @@ calcspecies <- function(x)
   }
   return(resdf)
 }
+
+
+#specres is a set of lists for each iteration of following for-loop, which includes the number of species detected in a sample when rarifaction with a certain number is performed. the number for the rarifaction loop are starting at 100 and going up by 100 until the max amount of reads detected in a sample. 
+  #so the first element of specres will evaluate all samples with over 100 reads. THis will be all of them
+  #the last element will evaluate only evaluate the samples with >79000 reads, which will be only one. 
+
 specres <- list()
-for(i in 1:length(seq(100,max(colSums(expshared)),by=100))) 
+for(i in 1:length(seq(500,max(colSums(expshared)),by=500))) 
   #maybe use another number than 100 depending upon dataset size
 {
-  sampz <- seq(100,max(colSums(expshared)),by=100)[i]
-  expsubs <- expshared[,which(colSums(expshared)>=sampz)]
-  rareset <- as.data.frame(t(rrarefy(t(expsubs),sampz)))
+  sampz <- seq(500,max(colSums(expshared)),by=500)[i]    #selects i'th amount of sequences/reads
+  expsubs <- expshared[,which(colSums(expshared)>=sampz)]    # looks where the column sum in expshared is bigger than sampz and extracts those columns
+  rareset <- as.data.frame(t(rrarefy(t(expsubs),sampz)))    # rrarify 
   if(is.null(dim(expsubs))) #only if only one sample left with certain depth
   {
     colnames(rareset) <- names(which(colSums(expshared)>=sampz))
@@ -892,16 +907,23 @@ for(i in 1:length(seq(100,max(colSums(expshared)),by=100)))
   speclist <- mclapply(rareset,calcspecies,mc.cores=12, mc.cleanup = TRUE)
   specres[[i]] <- speclist
 }
+
+#in plotlist, for each sample a list is created containing the richness estimators for each timepoint vs the subsampling number. 
+# for-loop gaat alle samples af
+  #ldply applies a funciton to each element of a list (specres) and combines the results in a dataframe
+  #smpdf = dataframe with all richness parameter material on the specific sample in the loop. the last smpdf should not coltain many samples
+
 plotlist <- list()
 for(i in names(specres[[1]]))
 {
   smpdf <- ldply(specres,function(x)eval(parse(text=paste("x$`",i,"`",sep=""))))
   smplist <- lapply(specres,function(x)eval(parse(text=paste("x$`",i,"`",sep=""))))
-  subscount <- rep(seq(100,sum(eval(parse(text = paste("expshared$`",i,"`",sep="")))),by=100),each=3)
+  subscount <- rep(seq(500,sum(eval(parse(text = paste("expshared$`",i,"`",sep="")))),by=500),each=3)
   smpname <- i
   plotdf <- data.frame(smpdf,sampsize=subscount,samplename=rep(smpname,nrow(smpdf)))
   plotlist[[i]]<-plotdf
 }
+
 # TODO: implement this at a later stage, make sure that the df stores the standard errors too
 plotlistdf <- data.frame(plotlist[[1]])
 for(i in 2:length(plotlist))
@@ -928,17 +950,21 @@ c84gg <- ggplot(aes(x=sampsize,y=Nhat,color=samplename),data=chao84plotdata) +
           geom_point() + geom_errorbar(aes(ymin=CI_lb,ymax=CI_ub)) + 
   xlab("Number of reads sampled") + ylab(bquote(hat(N)[Chao~1984~lower~bound~estimator]))
 c84gg
+
 highqualgraphR(c84gg,filename = "Chao1984_collectorcurve",extension = c("png"))
 # cbgg <- ggplot(aes(x=sampsize,y=Nhat,color=samplename),data=chaobungeplotdata) +
 #           geom_point() + geom_errorbar(aes(ymin=CI_lb,ymax=CI_ub)) + 
 #   xlab("Number of reads sampled") + ylab(bquote(hat(N)[Poisson~Gama~model~coverage~duplication~estimator]))
 #not stable at all
+
 a1gg <- ggplot(aes(x=sampsize,y=Nhat,color=samplename),data=ace1plotdata) +
           geom_point() + geom_errorbar(aes(ymin=CI_lb,ymax=CI_ub)) + 
   xlab("Number of reads sampled") + ylab(bquote(hat(N)[ACE~1~estimator]))
 a1gg
+
 highqualgraphR(a1gg,filename = "ACE1_collectorcurve",extension = c("png"))
-Below we list the table with several richness estimators (per sample) and their confidence intervals.
+
+#Below we list the table with several richness estimators (per sample) and their confidence intervals.
 
 fullsetrichcalc <- mclapply(shared.t.ns,calcspecies,mc.cores = 12,mc.cleanup = TRUE)
 tablrichdf <- ldply(fullsetrichcalc,function(x)x)
@@ -978,14 +1004,14 @@ for(i in seq(100,max(colSums(shared.t.ns)),by=round(max(colSums(shared.t.ns))/10
 #                                to=sub("(...).*","\\1",levels(vegplotsto$Sample)))
 
 shanplotveg <- ggplot(aes(x=numSampled,y=Shannon,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
-shanplotveg + geom_line() + ylab("Shannon diversity index (H)") + xlab("Reads sampled")
-spexp <- shanplotveg + geom_line() + ylab("Shannon diversity index (H)") + xlab("Reads sampled")
+shanplotveg + geom_line() + ylab("Shannon diversity index (H)") + xlab("Reads sampled") + theme(legend.position = "none")
+spexp <- shanplotveg + geom_line() + ylab("Shannon diversity index (H)") + xlab("Reads sampled")+ theme(legend.position = "none")
 
 highqualgraphR(spexp,filename = "Shannon_collector",extension = c("png"))
 
 simpplotveg <- ggplot(aes(x=numSampled,y=Simpson,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
-simpplotveg + geom_line() + ylab("Simpson diversity index (1-D)") + xlab("Reads sampled")
-sipexp <- simpplotveg + geom_line() + ylab("Simpson diversity index (1-D)") + xlab("Reads sampled")
+simpplotveg + geom_line() + ylab("Simpson diversity index (1-D)") + xlab("Reads sampled")+ theme(legend.position = "none")
+sipexp <- simpplotveg + geom_line() + ylab("Simpson diversity index (1-D)") + xlab("Reads sampled")+ theme(legend.position = "none")
 
 highqualgraphR(sipexp,filename = "Simpson_collector",extension = c("png"))
 
@@ -1002,7 +1028,7 @@ pieexp <- pielouplotveg + geom_line() + ylab("Pielou evenness index (J)") + xlab
 
 highqualgraphR(pieexp,filename = "Pielou_collector",extension = c("png"))
 
-The diversity estimators which are stable (i.e. the plots level off) should be considered for further evaluation. Their values on the full dataset (without singletons) are listed in the table below.
+#The diversity estimators which are stable (i.e. the plots level off) should be considered for further evaluation. Their values on the full dataset (without singletons) are listed in the table below.
 
 vegplotdf <- vegplotsto
 #vegplotdf$Sample <- plyr::mapvalues(vegplotdf$Sample,
@@ -1014,10 +1040,11 @@ vegtable <- vegplotdf  %>%  group_by(Sample)  %>% dplyr::filter(numSampled==max(
 kable(vegtable,caption="Diversity indices on the full dataset")
 write.csv(vegtable,"Diversity_vegan.csv")
 ```
+
 ##Rarefaction curves
 ```{r}
 
-Although it can be considered part of sequence quality control, we show rarefaction curves here as a measure if sampling was deep enough to cover all observed diversity. After removal of the singletons, the curves were drawn. For appropriate sampling depth, curves should "level off".
+#Although it can be considered part of sequence quality control, we show rarefaction curves here as a measure if sampling was deep enough to cover all observed diversity. After removal of the singletons, the curves were drawn. For appropriate sampling depth, curves should "level off".
 
 set.seed=12345
 raredfplot <- shared.t.ns
