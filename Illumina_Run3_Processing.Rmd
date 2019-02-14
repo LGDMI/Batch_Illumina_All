@@ -794,7 +794,6 @@ dev.off()
 ##RICHNESS CALCULATORS
 ```{r} 
 
-
 groupcounts <- data.frame(Reads = sort(colSums(shared.t.ns),
                                        decreasing=TRUE))
 
@@ -852,11 +851,14 @@ calcspecies <- function(x)
     inputdf <- data.frame(j=as.numeric(as.character(rownames(as.matrix(table(x))))),
                           n_j=as.vector(table(x)))
     inputdf <- subset(inputdf,subset=inputdf$j!=0) 
-    #estimators don't work with 0 observations
     
+    #estimators don't work with 0 observations
+    ##following is the calculation of diversity parameters
     chaores <- chao1984(inputdf)
     suppressWarnings(chaobung <- SPECIES::ChaoBunge(inputdf,t=10))
     suppressWarnings(ace1res <- SPECIES::ChaoLee1992(inputdf,t=10,method="ACE-1"))
+    
+    
     #pcgres <- SPECIES::pcg(inputdf) #too computationally intensive , overparametrized
     #unplmeres <- SPECIES::unpmle(inputdf,C=1,b=20,seed=456789,dis=0) #quite computationally intensive, certainly for larger datasets
     #pnplmeres <- SPECIES::pnpmle(inputdf,C=1,b=20,seed=456789,dis=0) #quite computationally intensive, certainly for larger datasets
@@ -964,16 +966,78 @@ a1gg
 
 highqualgraphR(a1gg,filename = "ACE1_collectorcurve",extension = c("png"))
 
-#Below we list the table with several richness estimators (per sample) and their confidence intervals.
 
+
+
+#Below we list the table with several richness estimators (per sample) and their confidence intervals.
 fullsetrichcalc <- mclapply(shared.t.ns,calcspecies,mc.cores = 12,mc.cleanup = TRUE)
 tablrichdf <- ldply(fullsetrichcalc,function(x)x)
-names(tablrichdf)[1]<-"Sample name"
+names(tablrichdf)[1]<-"SampleName"
 kable(tablrichdf,caption = "Richness estimators with standard errors and 95\\% confidence interval")
 write.csv(tablrichdf,"Richness_estimated.csv")
 
+### Processing of RIchness parameters
+tablrichdf
 
-##Diversity estimators
+rich.merge <- merge(tablrichdf,metadata[2:6], by = "SampleName")
+rich.merge.chao <- dplyr::filter(rich.merge, Methods == "Chao1984")
+rich.merge.chao <- unite(rich.merge.chao, Treatment, c(EM, EM_Conc), remove=FALSE, sep =' - ')
+
+X.order <- c("CMC - 0.005","CMC - 0.05","CMC - 0.5","P80 - 0.005", "P80 - 0.05","P80 - 0.5","SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+## Chao1 PLOT
+barplot.chao <-ggplot(data=rich.merge.chao, aes(x= Treatment, y=Nhat, fill = as.factor(Factor2))) +
+  geom_bar(stat="identity", position = "dodge")+  
+  facet_grid(~Factor1)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Chao richness")+
+  ylab("Chao")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
+  labs(fill = "Top 8 Genus")+
+  scale_x_discrete(limits=X.order)
+barplot.chao
+
+pdf("Plot_Batch_Illumina_Run3_Chao1richness.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.chao
+dev.off()
+
+## PLOT ONLY 5 DONORS FOR PPT
+rich.merge.chao$Factor1 <- as.factor(rich.merge.chao$Factor1)
+rich.merge.chao.5D <- dplyr::filter(rich.merge.chao,Factor1 %in% c("3","4","5","6","7"))
+
+X.order.5D <- c("SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+X.order.0.5 <- c("CMC - 0.5","P80 - 0.5","SoyLec - 0.5","SL - 0.5","RL - 0.5", "Control - 0")
+
+barplot.genus.5D <-ggplot(data=rich.merge.chao.5D, aes(x= Treatment, y=Nhat, fill = as.factor(Factor2))) +
+  geom_bar(stat="identity", position = "dodge")+  
+  facet_grid(~Factor1)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("Chao richness")+
+  ylab("Chao")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 12),axis.text=element_text(size = 10),axis.title.y=element_text(size=14),plot.title = element_text(size = 20))+
+  labs(fill = "Timepoint")+
+  scale_x_discrete(limits=X.order.0.5)
+barplot.genus.5D
+
+pdf("Plot_Batch_Illumina_Run3_Chao_5D.pdf",width = 10, height = 8, pointsize = 10)
+    barplot.genus.5D
+dev.off()
+
+pdf("Plot_Batch_Illumina_Run3_Chao_5D_ppt.pdf",width = 10, height = 8, pointsize = 10)
+    barplot.genus.5D
+dev.off()
+
+```
+
+
+
+## BETA Diversity estimators
+```{r}
 csumssto <- colSums(shared.t.ns)
 vegplotsto <- data.frame(numSampled=rep(1,ncol(shared.t.ns)),Sample=colnames(shared.t.ns),
                          Shannon=0,Invsimpson=1,Simpson=0,Pielou=0)
@@ -1062,8 +1126,19 @@ rarecurve(t(raredfplot),sample=min(colSums(raredfplot)),
 ```
 
 #BETA DIVERSITY
+
+```
+# HILL NUMBERS
 ```{r}
- set.seed(4798)
+
+
+```
+
+
+# BASIC ORDINATION
+
+```{r}
+set.seed(4798)
 shared.relab <- decostand(raredfplot,method="total",MARGIN=2)
 shared.cs <- shared.relab*min(colSums(shared.t.ns))
 disjac <- vegdist(t(shared.relab),method="jaccard")
@@ -1143,14 +1218,8 @@ stressplot(mdsjac.cs,disjac.cs)
 # plot(dcarelab.sel,display="sites",type="text")
 # plot(dcarelab.sel,display="sites",type="text",col="red")
 # sel <- orditorp(dcarelab.sel,display = "species",priority=colSums(t(shared.relab.sel)))
-
-
 ```
-# HILL NUMBERS
-```{r}
 
-
-```
 
 ## R Markdown
 
