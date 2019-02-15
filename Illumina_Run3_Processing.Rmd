@@ -1032,6 +1032,62 @@ pdf("Plot_Batch_Illumina_Run3_Chao_5D_ppt.pdf",width = 10, height = 8, pointsize
     barplot.genus.5D
 dev.off()
 
+## PLOT ACE-parameters
+rich.merge <- merge(tablrichdf,metadata[2:6], by = "SampleName")
+rich.merge.ACE <- dplyr::filter(rich.merge, Methods == "ACE-1")
+rich.merge.ACE <- unite(rich.merge.ACE, Treatment, c(EM, EM_Conc), remove=FALSE, sep =' - ')
+
+X.order <- c("CMC - 0.005","CMC - 0.05","CMC - 0.5","P80 - 0.005", "P80 - 0.05","P80 - 0.5","SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+## ACE-1 PLOT
+barplot.ACE <-ggplot(data=rich.merge.ACE, aes(x= Treatment, y=Nhat, fill = as.factor(Factor2))) +
+  geom_bar(stat="identity", position = "dodge")+  
+  facet_grid(~Factor1)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("ACE-1 richness")+
+  ylab("ACE")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
+  labs(fill = "Timepoint")+
+  scale_x_discrete(limits=X.order)
+barplot.ACE
+
+pdf("Plot_Batch_Illumina_Run3_ACE1richness.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.ACE
+dev.off()
+
+
+## PLOT ONLY 5 DONORS FOR PPT
+rich.merge.ACE$Factor1 <- as.factor(rich.merge.ACE$Factor1)
+rich.merge.ACE.5D <- dplyr::filter(rich.merge.ACE,Factor1 %in% c("3","4","5","6","7"))
+
+X.order.5D <- c("SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+X.order.0.5 <- c("CMC - 0.5","P80 - 0.5","SoyLec - 0.5","SL - 0.5","RL - 0.5", "Control - 0")
+
+barplot.ACE.5D <-ggplot(data=rich.merge.ACE.5D, aes(x= Treatment, y=Nhat, fill = as.factor(Factor2))) +
+  geom_bar(stat="identity", position = "dodge")+  
+  facet_grid(~Factor1)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("ACE richness")+
+  ylab("ACE")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 12),axis.text=element_text(size = 10),axis.title.y=element_text(size=14),plot.title = element_text(size = 20))+
+  labs(fill = "Timepoint")+
+  scale_x_discrete(limits=X.order.0.5)
+barplot.ACE.5D
+
+pdf("Plot_Batch_Illumina_Run3_ACE_5D.pdf",width = 10, height = 8, pointsize = 10)
+    barplot.ACE.5D
+dev.off()
+
+pdf("Plot_Batch_Illumina_Run3_Chao_5D_ppt.pdf",width = 10, height = 8, pointsize = 10)
+    barplot.ACE.5D
+dev.off()
+
+
 ```
 
 
@@ -1103,6 +1159,10 @@ vegtable <- vegplotdf  %>%  group_by(Sample)  %>% dplyr::filter(numSampled==max(
 #if numSampled == 1 then there was a prob with the sample size < 100 reads
 kable(vegtable,caption="Diversity indices on the full dataset")
 write.csv(vegtable,"Diversity_vegan.csv")
+
+
+
+
 ```
 
 ##Rarefaction curves
@@ -1127,10 +1187,163 @@ rarecurve(t(raredfplot),sample=min(colSums(raredfplot)),
 
 #BETA DIVERSITY
 
-```
+
 # HILL NUMBERS
 ```{r}
+# =============================================================
+# Tutorial on drawing a richness plot using ggplot2
+# by Umer Zeeshan Ijaz (http://userweb.eng.gla.ac.uk/umer.ijaz)
+# =============================================================
+#This script generates multiple subplots for all the environmental variables against species richness in a 
+#single plot. The species richness is rarefied to the minimum sample numbers and a correlation test is performed 
+#between the rarefied richness and the environmental variables. The resulting correlation and their significance 
+#is drawn on top of each panel.
+########## Load the data for phyloseq ##########
+library(phyloseq)
+library(vegan)
+library(ggplot2)
 
+#Load abundance table
+abund_table<-read.csv("Source_data/otu_table_precol.csv",row.names=1,check.names=FALSE)
+abund_table<-t(abund_table)
+
+which_level<-"Otus" #Phylum Class Order Family Genus
+
+#Load OTU taxonomy
+OTU_taxonomy<-as.data.frame(read.csv("Source_data/otus_Taxonomy.csv",row.names=1))
+OTU_taxonomy[] <- lapply(OTU_taxonomy, function(x) as.character(x))
+OTU_taxonomy[is.na(OTU_taxonomy)]<-""
+
+OTU_taxonomy$Genus<-gsub("unclassified.*","",OTU_taxonomy$Genus)
+OTU_taxonomy$Family<-gsub("unclassified.*","",OTU_taxonomy$Family)
+OTU_taxonomy$Order<-gsub("unclassified.*","",OTU_taxonomy$Order)
+OTU_taxonomy$Class<-gsub("unclassified.*","",OTU_taxonomy$Class)
+OTU_taxonomy$Phylum<-gsub("unclassified.*","",OTU_taxonomy$Phylum)
+OTU_taxonomy$Domain<-gsub("Unclassified.*","",OTU_taxonomy$Domain)
+
+OTU_taxonomy<-OTU_taxonomy[colnames(abund_table),]
+
+#Remove Archaea
+#OTU_taxonomy<-OTU_taxonomy[OTU_taxonomy$Domain!="Archaea",]
+#abund_table<-abund_table[,colnames(abund_table) %in% rownames(OTU_taxonomy)]
+#OTU_taxonomy<-OTU_taxonomy[colnames(abund_table),]
+
+#Select appropriate phylogeny level
+new_abund_table<-NULL
+if(which_level=="Otus"){
+  new_abund_table<-abund_table
+} else {
+  list<-unique(OTU_taxonomy[,which_level])
+  new_abund_table<-NULL
+  for(i in list){
+    tmp<-data.frame(rowSums(abund_table[,rownames(OTU_taxonomy)[OTU_taxonomy[,which_level]==i],drop=F]))
+    if(i==""){colnames(tmp)<-c("__Unknowns__")} else {colnames(tmp)<-paste("",i,sep="")}
+    if(is.null(new_abund_table)){new_abund_table<-tmp} else {new_abund_table<-cbind(tmp,new_abund_table)}
+  }
+}
+
+new_abund_table<-as.data.frame(as(new_abund_table,"matrix"))
+abund_table<-new_abund_table
+
+#Remove VCE2, sample not reliable
+#abund_table<-abund_table[!rownames(abund_table) %in% c("Day082_Sulphate_c"),]
+
+#Remove empty columns and singletons
+abund_table<-abund_table[,colSums(abund_table)>1]
+OTU_taxonomy<-OTU_taxonomy[colnames(abund_table),]
+
+#Adjust OTU_taxonomy table
+OTU_taxonomy<-OTU_taxonomy[colnames(abund_table),]
+
+library(phyloseq)
+#Convert the data to phyloseq format
+OTU = otu_table(as.matrix(abund_table), taxa_are_rows = FALSE)
+TAX = tax_table(as.matrix(OTU_taxonomy))
+
+physeq<-merge_phyloseq(phyloseq(OTU))
+
+#Normalize data according to McMurdie et al. (2014) - Waste Not, Want Not
+#Better rounding function than R's base round
+myround<-function(x) { trunc(x + 0.5) }
+round<-"floor"
+# Scales reads by 
+# 1) taking proportions
+# 2) multiplying by a given library size of n
+# 3) rounding 
+# Default for n is the minimum sample size in your library
+# Default for round is floor
+# transform counts to n
+
+n = min(sample_sums(physeq))
+physeq.scale <- transform_sample_counts(physeq, function(x) {(n * x/sum(x))})
+
+# Pick the rounding functions
+if (round == "floor"){
+  otu_table(physeq.scale) <- floor(otu_table(physeq.scale))
+} else if (round == "round"){
+  otu_table(physeq.scale) <- myround(otu_table(physeq.scale))
+}
+
+# Prune taxa and return new phyloseq object
+physeq.scale <- prune_taxa(taxa_sums(physeq.scale) > 0, physeq.scale)
+return(physeq.scale)
+
+new_abund_table<-as.data.frame(as(otu_table(physeq.scale),"matrix"))
+abund_table<-new_abund_table
+
+#Rarefaction curves before 1% cutoff
+raremax<-min(rowSums(abund_table))
+pdf("Sink_data/Rarefaction_curves_nocutoff.pdf",height=6,width=6)
+rarecurve(data.frame(abund_table), step = 20, sample = raremax, col = "blue", cex = 0.6, label=F)
+dev.off()
+
+Testing
+#Remove empty columns
+abund_table<-abund_table[,colSums(abund_table)>0]
+
+#Adjust OTU_taxonomy table
+OTU_taxonomy<-OTU_taxonomy[colnames(abund_table),]
+
+abund_table<-as.data.frame(abund_table)
+
+###################################################
+#Load vegan library
+library(vegan)
+
+#Calculate Richness
+R<-rarefy(abund_table,min(rowSums(abund_table)))
+df_R<-data.frame(sample=names(R),value=R,measure=rep("Richness",length(R)))
+
+#Calculate Shannon entropy
+H<-diversity(abund_table)
+df_H<-data.frame(sample=names(H),value=H,measure=rep("Shannon",length(H)))
+
+#Calculate Simpson diversity index
+simp <- diversity(abund_table, "simpson")
+df_simp<-data.frame(sample=names(simp),value=simp,measure=rep("Simpson",length(simp)))
+
+#Calculate Fisher alpha
+alpha <- fisher.alpha(abund_table)
+df_alpha<-data.frame(sample=names(alpha),value=alpha,measure=rep("Fisher alpha",length(alpha)))
+
+#Calculate Pielou's evenness
+S <- specnumber(abund_table)
+J <- H/log(S)
+df_J<-data.frame(sample=names(J),value=J,measure=rep("Pielou's evenness",length(J)))
+
+#Calculate Hill's numbers
+D0 <- S
+D1 <- exp(H)
+D2 <- diversity(abund_table, "inv")
+
+df_D0<-data.frame(sample=names(D0),value=D0,measure=rep("Hill order 0",length(D0)),method="Illumina")
+df_D1<-data.frame(sample=names(D1),value=D1,measure=rep("Hill order 1",length(D1)),method="Illumina")
+df_D2<-data.frame(sample=names(D2),value=D2,measure=rep("Hill order 2",length(D2)),method="Illumina")
+
+df<-rbind(df_D0,df_D1,df_D2)
+
+#Write updated abundance and OTU tables to csv files
+write.csv(df,file=paste("Sink_data/HillNumbers_bacteria_otu.csv",spe=""))
 
 ```
 
