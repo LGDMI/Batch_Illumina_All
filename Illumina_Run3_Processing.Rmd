@@ -791,7 +791,7 @@ dev.off()
 ```
 
 
-##RICHNESS CALCULATORS
+##ALPHA DIVERITY CALCULATORS
 ```{r} 
 
 groupcounts <- data.frame(Reads = sort(colSums(shared.t.ns),
@@ -1090,14 +1090,15 @@ dev.off()
 
 ```
 
-
-
-## BETA Diversity estimators
+##  Shannon, Simpson, Inverse Simpson, Pielou
 ```{r}
-csumssto <- colSums(shared.t.ns)
+csumssto <- colSums(shared.t.ns)  # sums of reads per OTU
+
 vegplotsto <- data.frame(numSampled=rep(1,ncol(shared.t.ns)),Sample=colnames(shared.t.ns),
-                         Shannon=0,Invsimpson=1,Simpson=0,Pielou=0)
-for(i in seq(100,max(colSums(shared.t.ns)),by=round(max(colSums(shared.t.ns))/1000L)))
+                         Shannon=0,Invsimpson=1,Simpson=0,Pielou=0)   # creates matrix where     parameters will be filled in
+
+#Calculating and filling in parameters
+for(i in seq(100,max(colSums(shared.t.ns)),by=round(max(colSums(shared.t.ns))/100L)))
 {
   colselsto <- csumssto >= i
   ipraresto <- shared.t.ns[,colselsto]
@@ -1123,26 +1124,26 @@ for(i in seq(100,max(colSums(shared.t.ns)),by=round(max(colSums(shared.t.ns))/10
 #                                from=levels(vegplotsto$Sample),
 #                                to=sub("(...).*","\\1",levels(vegplotsto$Sample)))
 
-shanplotveg <- ggplot(aes(x=numSampled,y=Shannon,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
+shanplotveg <- ggplot(aes(x=numSampled,y=Shannon,color=Sample),data=vegplotsto) + geom_point(alpha=0.6) + ggtitle("Batch experiments - Shannon diversity index")
 shanplotveg + geom_line() + ylab("Shannon diversity index (H)") + xlab("Reads sampled") + theme(legend.position = "none")
 spexp <- shanplotveg + geom_line() + ylab("Shannon diversity index (H)") + xlab("Reads sampled")+ theme(legend.position = "none")
 
 highqualgraphR(spexp,filename = "Shannon_collector",extension = c("png"))
 
-simpplotveg <- ggplot(aes(x=numSampled,y=Simpson,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
+simpplotveg <- ggplot(aes(x=numSampled,y=Simpson,color=Sample),data=vegplotsto) + geom_point(alpha=0.6) + ggtitle("Batch experiments - Simpson diversity index")
 simpplotveg + geom_line() + ylab("Simpson diversity index (1-D)") + xlab("Reads sampled")+ theme(legend.position = "none")
 sipexp <- simpplotveg + geom_line() + ylab("Simpson diversity index (1-D)") + xlab("Reads sampled")+ theme(legend.position = "none")
 
 highqualgraphR(sipexp,filename = "Simpson_collector",extension = c("png"))
 
-invsimpplotveg <- ggplot(aes(x=numSampled,y=Invsimpson,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
+invsimpplotveg <- ggplot(aes(x=numSampled,y=Invsimpson,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)+ ggtitle("Batch experiments - Inv. Simpson diversity index")+theme(legend.position = "none")
 invsimpplotveg + geom_line() + ylab("Inverse Simpson diversity index (1/D)") + xlab("Reads sampled")
 invsiexp <- invsimpplotveg + geom_line() + ylab("Inverse Simpson diversity index (1/D)") + xlab("Reads sampled")
 
 
 highqualgraphR(invsiexp,filename = "Inverse_Simpson_collector",extension = c("png"))
 
-pielouplotveg <- ggplot(aes(x=numSampled,y=Pielou,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)
+pielouplotveg <- ggplot(aes(x=numSampled,y=Pielou,color=Sample),data=vegplotsto) + geom_point(alpha=0.6)+ ggtitle("Batch experiments - Inv. Simpson diversity index")+theme(legend.position = "none")
 pielouplotveg + geom_line() + ylab("Pielou evenness index (J)") + xlab("Reads sampled")
 pieexp <- pielouplotveg + geom_line() + ylab("Pielou evenness index (J)") + xlab("Reads sampled")
 
@@ -1160,9 +1161,6 @@ vegtable <- vegplotdf  %>%  group_by(Sample)  %>% dplyr::filter(numSampled==max(
 kable(vegtable,caption="Diversity indices on the full dataset")
 write.csv(vegtable,"Diversity_vegan.csv")
 
-
-
-
 ```
 
 ##Rarefaction curves
@@ -1177,9 +1175,11 @@ raredfplot <- shared.t.ns
 rarecurve(t(raredfplot),step=round(max(colSums(raredfplot))/1000L),
           cex=0.4)
 pdf(file = "figure/rarefaction_curve_nosingletons.pdf",paper = "a4r")
+
 rarecurve(t(raredfplot),step=round(max(colSums(raredfplot))/1000L),
           cex=0.4)
 invisible(dev.off())
+
 rarecurve(t(raredfplot),sample=min(colSums(raredfplot)),
           step=round(max(colSums(raredfplot))/1000L),cex=0.4)
 
@@ -1198,14 +1198,15 @@ rarecurve(t(raredfplot),sample=min(colSums(raredfplot)),
 #single plot. The species richness is rarefied to the minimum sample numbers and a correlation test is performed 
 #between the rarefied richness and the environmental variables. The resulting correlation and their significance 
 #is drawn on top of each panel.
+
 ########## Load the data for phyloseq ##########
 library(phyloseq)
 library(vegan)
 library(ggplot2)
 
 #Load abundance table
-abund_table<-read.csv("Source_data/otu_table_precol.csv",row.names=1,check.names=FALSE)
-abund_table<-t(abund_table)
+#abund_table<-read.csv("Source_data/otu_table_precol.csv",row.names=1,check.names=FALSE)
+#abund_table<-t(abund_table)
 
 which_level<-"Otus" #Phylum Class Order Family Genus
 
@@ -1245,8 +1246,6 @@ if(which_level=="Otus"){
 new_abund_table<-as.data.frame(as(new_abund_table,"matrix"))
 abund_table<-new_abund_table
 
-#Remove VCE2, sample not reliable
-#abund_table<-abund_table[!rownames(abund_table) %in% c("Day082_Sulphate_c"),]
 
 #Remove empty columns and singletons
 abund_table<-abund_table[,colSums(abund_table)>1]
@@ -1257,13 +1256,22 @@ OTU_taxonomy<-OTU_taxonomy[colnames(abund_table),]
 
 library(phyloseq)
 #Convert the data to phyloseq format
-OTU = otu_table(as.matrix(abund_table), taxa_are_rows = FALSE)
-TAX = tax_table(as.matrix(OTU_taxonomy))
+
+#OTU = otu_table(as.matrix(abund_table), taxa_are_rows = FALSE)
+#TAX = tax_table(as.matrix(OTU_taxonomy))
+```
+
+```{r} 
+#VANAF HIER
+
+OTU = otu_table(as.matrix(shared.t.ns), taxa_are_rows = FALSE)
+TAX = tax_table(as.matrix(taxonomy.np.ns))
 
 physeq<-merge_phyloseq(phyloseq(OTU))
 
 #Normalize data according to McMurdie et al. (2014) - Waste Not, Want Not
 #Better rounding function than R's base round
+
 myround<-function(x) { trunc(x + 0.5) }
 round<-"floor"
 # Scales reads by 
@@ -1275,7 +1283,7 @@ round<-"floor"
 # transform counts to n
 
 n = min(sample_sums(physeq))
-physeq.scale <- transform_sample_counts(physeq, function(x) {(n * x/sum(x))})
+physeq.scale <- transform_sample_counts(physeq, function(x) {(n * x/sum(x))})   #function that calculates proportions
 
 # Pick the rounding functions
 if (round == "floor"){
@@ -1304,7 +1312,8 @@ abund_table<-abund_table[,colSums(abund_table)>0]
 #Adjust OTU_taxonomy table
 OTU_taxonomy<-OTU_taxonomy[colnames(abund_table),]
 
-abund_table<-as.data.frame(abund_table)
+#abund_table<-as.data.frame(abund_table)
+abund_table<-as.data.frame(shared.t.ns)
 
 ###################################################
 #Load vegan library
@@ -1343,12 +1352,13 @@ df_D2<-data.frame(sample=names(D2),value=D2,measure=rep("Hill order 2",length(D2
 df<-rbind(df_D0,df_D1,df_D2)
 
 #Write updated abundance and OTU tables to csv files
-write.csv(df,file=paste("Sink_data/HillNumbers_bacteria_otu.csv",spe=""))
+write.csv(vegtable,"Diversity_vegan.csv")
+write.csv(df,"HillNumbers_bacteria_otu.csv")
 
 ```
 
 
-# BASIC ORDINATION
+# BASIC ORDINATION/ BETA_DIVERSITY
 
 ```{r}
 set.seed(4798)
