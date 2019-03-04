@@ -1172,17 +1172,19 @@ set.seed=12345
 raredfplot <- shared.t.ns
 #colnames(raredfplot)<-sub("(...).*","\\1",colnames(raredfplot))
 
-rarecurve(t(raredfplot),step=round(max(colSums(raredfplot))/1000L),
+rarecurve(t(raredfplot),step=round(max(colSums(raredfplot))/100L),
           cex=0.4)
-pdf(file = "figure/rarefaction_curve_nosingletons.pdf",paper = "a4r")
+pdf(file = "Batch_Illumina_Run3_rarefaction_curve_ns.pdf",paper = "a4r")
+dev.off()
 
-rarecurve(t(raredfplot),step=round(max(colSums(raredfplot))/1000L),
+rarecurve(t(raredfplot),step=round(max(colSums(raredfplot))/100L),
           cex=0.4)
 invisible(dev.off())
 
 rarecurve(t(raredfplot),sample=min(colSums(raredfplot)),
-          step=round(max(colSums(raredfplot))/1000L),cex=0.4)
-
+          step=round(max(colSums(raredfplot))/100L),cex=0.4)
+pdf(file = "Batch_Illumina_Run3_rarefaction_curve_ns_2.pdf",paper = "a4r")
+dev.off()
 ```
 
 #BETA DIVERSITY
@@ -1261,10 +1263,11 @@ library(phyloseq)
 #TAX = tax_table(as.matrix(OTU_taxonomy))
 ```
 
+##VANAF HIER
 ```{r} 
 #VANAF HIER
 
-OTU = otu_table(as.matrix(shared.t.ns), taxa_are_rows = FALSE)
+OTU = otu_table(as.matrix(shared.t.ns), taxa_are_rows = TRUE)
 TAX = tax_table(as.matrix(taxonomy.np.ns))
 
 physeq<-merge_phyloseq(phyloseq(OTU))
@@ -1274,6 +1277,7 @@ physeq<-merge_phyloseq(phyloseq(OTU))
 
 myround<-function(x) { trunc(x + 0.5) }
 round<-"floor"
+
 # Scales reads by 
 # 1) taking proportions
 # 2) multiplying by a given library size of n
@@ -1285,7 +1289,7 @@ round<-"floor"
 n = min(sample_sums(physeq))
 physeq.scale <- transform_sample_counts(physeq, function(x) {(n * x/sum(x))})   #function that calculates proportions
 
-# Pick the rounding functions
+# Round out the OTU-table
 if (round == "floor"){
   otu_table(physeq.scale) <- floor(otu_table(physeq.scale))
 } else if (round == "round"){
@@ -1293,39 +1297,41 @@ if (round == "floor"){
 }
 
 # Prune taxa and return new phyloseq object
-physeq.scale <- prune_taxa(taxa_sums(physeq.scale) > 0, physeq.scale)
+physeq.scale <- prune_taxa(taxa_sums(physeq.scale) > 0, physeq.scale) #prune out OTU's for which all round out proportions were 0
 return(physeq.scale)
 
-new_abund_table<-as.data.frame(as(otu_table(physeq.scale),"matrix"))
-abund_table<-new_abund_table
+new_abund_table <- as.data.frame(as(otu_table(physeq.scale),"matrix"))
+abund_table <- new_abund_table
 
 #Rarefaction curves before 1% cutoff
-raremax<-min(rowSums(abund_table))
+raremax <- min(rowSums(abund_table))
 pdf("Sink_data/Rarefaction_curves_nocutoff.pdf",height=6,width=6)
 rarecurve(data.frame(abund_table), step = 20, sample = raremax, col = "blue", cex = 0.6, label=F)
 dev.off()
 
 Testing
+
 #Remove empty columns
-abund_table<-abund_table[,colSums(abund_table)>0]
+abund_table <- abund_table[,colSums(abund_table)>0]
 
 #Adjust OTU_taxonomy table
-OTU_taxonomy<-OTU_taxonomy[colnames(abund_table),]
+OTU_taxonomy <- OTU_taxonomy[colnames(abund_table),]
 
 #abund_table<-as.data.frame(abund_table)
-abund_table<-as.data.frame(shared.t.ns)
+abund_table <- as.data.frame(shared.t.ns)
 
 ###################################################
 #Load vegan library
 library(vegan)
 
 #Calculate Richness
-R<-rarefy(abund_table,min(rowSums(abund_table)))
-df_R<-data.frame(sample=names(R),value=R,measure=rep("Richness",length(R)))
+abund_table <- t(abund_table)
+R <- rarefy(abund_table,min(rowSums(abund_table)))
+df_R <- data.frame(sample=names(R), value=R, measure=rep("Richness",length(R)))
 
 #Calculate Shannon entropy
-H<-diversity(abund_table)
-df_H<-data.frame(sample=names(H),value=H,measure=rep("Shannon",length(H)))
+H <- diversity(abund_table)
+df_H <-data.frame(sample=names(H),value=H,measure=rep("Shannon",length(H)))
 
 #Calculate Simpson diversity index
 simp <- diversity(abund_table, "simpson")
@@ -1338,16 +1344,16 @@ df_alpha<-data.frame(sample=names(alpha),value=alpha,measure=rep("Fisher alpha",
 #Calculate Pielou's evenness
 S <- specnumber(abund_table)
 J <- H/log(S)
-df_J<-data.frame(sample=names(J),value=J,measure=rep("Pielou's evenness",length(J)))
+df_J <- data.frame(sample=names(J),value=J,measure=rep("Pielou's evenness",length(J)))
 
 #Calculate Hill's numbers
 D0 <- S
 D1 <- exp(H)
 D2 <- diversity(abund_table, "inv")
 
-df_D0<-data.frame(sample=names(D0),value=D0,measure=rep("Hill order 0",length(D0)),method="Illumina")
-df_D1<-data.frame(sample=names(D1),value=D1,measure=rep("Hill order 1",length(D1)),method="Illumina")
-df_D2<-data.frame(sample=names(D2),value=D2,measure=rep("Hill order 2",length(D2)),method="Illumina")
+df_D0 <- data.frame(sample=names(D0),value=D0,measure=rep("Hill order 0",length(D0)),method="Illumina")
+df_D1 <- data.frame(sample=names(D1),value=D1,measure=rep("Hill order 1",length(D1)),method="Illumina")
+df_D2 <- data.frame(sample=names(D2),value=D2,measure=rep("Hill order 2",length(D2)),method="Illumina")
 
 df<-rbind(df_D0,df_D1,df_D2)
 
@@ -1356,13 +1362,154 @@ write.csv(vegtable,"Diversity_vegan.csv")
 write.csv(df,"HillNumbers_bacteria_otu.csv")
 
 ```
+## PLOTTING HILL NRS
+```{r}
+#merge with metadata
+colnames(df)[1] <-  "SampleName"
+df_hill <- merge(df,metadata[2:6], by = "SampleName")
+colnames(df_hill)[5] <-  "Donor"
+colnames(df_hill)[6] <-  "Timepoint"
 
+df_hill <- unite(df_hill, Treatment, c(EM, EM_Conc), remove=FALSE, sep =' - ')
+
+# PLOT H0
+df_hill_H0 <- dplyr::filter(df_hill, as.factor(measure) == "Hill order 0")
+
+
+X.order <- c("CMC - 0.005","CMC - 0.05","CMC - 0.5","P80 - 0.005", "P80 - 0.05","P80 - 0.5","SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+barplot.H0 <- ggplot(data = df_hill_T0, aes(x= Treatment, y= value, fill = as.factor(Timepoint))) +
+  geom_bar(stat="identity", position = "dodge")+  
+  facet_grid(~Donor)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("H0 richness")+
+  ylab("H0")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
+  labs(fill = "Timepoint")+
+  scale_x_discrete(limits = X.order)
+barplot.H0
+
+pdf("Plot_Batch_Illumina_Run3_H0_All.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.H0
+dev.off()
+
+
+#ENKEL CONTROLS
+df_hill_T0_Contr <- dplyr::filter(df_hill_T0, Treatment == "Control - 0")
+
+barplot.H0.Contr <- ggplot(data = df_hill_T0_Contr, aes(x = as.factor(Donor), y= value, fill = as.factor(Timepoint))) +
+  geom_bar(stat="identity", position = "dodge")+  
+ # facet_grid(~Donor)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("H0 richness")+
+  ylab("H0")+
+    xlab("Donor")+
+   theme(axis.text.x=element_text(hjust=1, size = 12),axis.text.y=element_text(size = 12) )+
+  labs(fill = "Timepoint")
+barplot.H0.Contr
+
+pdf("Plot_Batch_Illumina_Run3_H0_Contr.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.H0.Contr
+dev.off()
+
+
+# PLOT H1
+df_hill_H1 <- dplyr::filter(df_hill, as.factor(measure) == "Hill order 1")
+
+X.order <- c("CMC - 0.005","CMC - 0.05","CMC - 0.5","P80 - 0.005", "P80 - 0.05","P80 - 0.5","SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+barplot.H1 <- ggplot(data = df_hill_H1, aes(x= Treatment, y= value, fill = as.factor(Timepoint))) +
+  geom_bar(stat="identity", position = "dodge")+  
+  facet_grid(~Donor)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("H1 richness")+
+  ylab("H1")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
+  labs(fill = "Timepoint")+
+  scale_x_discrete(limits = X.order)
+barplot.H1
+
+pdf("Plot_Batch_Illumina_Run3_H1_All.pdf", width = 12, height = 6, pointsize = 10)
+    barplot.H1
+dev.off()
+
+
+#ENKEL CONTROLS
+df_hill_H1_Contr <- dplyr::filter(df_hill_H1, Treatment == "Control - 0")
+
+barplot.H1.Contr <- ggplot(data = df_hill_H1_Contr, aes(x = as.factor(Donor), y= value, fill = as.factor(Timepoint))) +
+  geom_bar(stat="identity", position = "dodge")+  
+ # facet_grid(~Donor)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("H1 richness")+
+  ylab("H1")+
+    xlab("Donor")+
+   theme(axis.text.x=element_text(hjust=1, size = 12),axis.text.y=element_text(size = 12) )+
+  labs(fill = "Timepoint")
+barplot.H1.Contr
+
+pdf("Plot_Batch_Illumina_Run3_H1_Contr.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.H1.Contr
+dev.off()
+
+
+# PLOT H2
+df_hill_H2 <- dplyr::filter(df_hill, as.factor(measure) == "Hill order 2")
+
+X.order <- c("CMC - 0.005","CMC - 0.05","CMC - 0.5","P80 - 0.005", "P80 - 0.05","P80 - 0.5","SoyLec - 0.005", "SoyLec - 0.05","SoyLec - 0.5","SL - 0.005","SL - 0.05","SL - 0.5","RL - 0.005","RL - 0.05","RL - 0.5", "Control - 0")
+
+barplot.H2 <- ggplot(data = df_hill_H2, aes(x= Treatment, y= value, fill = as.factor(Timepoint))) +
+  geom_bar(stat="identity", position = "dodge")+  
+  facet_grid(~Donor)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("H2 richness")+
+  ylab("H2")+
+   theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )+
+  labs(fill = "Timepoint")+
+  scale_x_discrete(limits = X.order)
+barplot.H2
+
+pdf("Plot_Batch_Illumina_Run3_H2_All.pdf", width = 12, height = 6, pointsize = 10)
+    barplot.H2
+dev.off()
+
+
+#ENKEL CONTROLS
+df_hill_H2_Contr <- dplyr::filter(df_hill_H2, Treatment == "Control - 0")
+
+barplot.H2.Contr <- ggplot(data = df_hill_H2_Contr, aes(x = as.factor(Donor), y= value, fill = as.factor(Timepoint))) +
+  geom_bar(stat="identity", position = "dodge")+  
+ # facet_grid(~Donor)+
+  theme_minimal()+ 
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set1")+
+  ggtitle("H2 richness")+
+  ylab("H2")+
+    xlab("Donor")+
+   theme(axis.text.x=element_text(hjust=1, size = 12), axis.text.y=element_text(size = 12) )+
+  labs(fill = "Timepoint")
+barplot.H2.Contr
+
+pdf("Plot_Batch_Illumina_Run3_H2_Contr.pdf",width = 12, height = 6, pointsize = 10)
+    barplot.H2.Contr
+dev.off()
+```
 
 # BASIC ORDINATION/ BETA_DIVERSITY
 
 ```{r}
 set.seed(4798)
-shared.relab <- decostand(raredfplot,method="total",MARGIN=2)
+shared.relab <- decostand(raredfplot,method="total",MARGIN=2) # standardisation
 shared.cs <- shared.relab*min(colSums(shared.t.ns))
 disjac <- vegdist(t(shared.relab),method="jaccard")
 disjac.cs <- vegdist(t(shared.cs),method="jaccard")
