@@ -1275,7 +1275,7 @@ physeq<-merge_phyloseq(phyloseq(OTU))
 #Normalize data according to McMurdie et al. (2014) - Waste Not, Want Not
 #Better rounding function than R's base round
 
-myround<-function(x) { trunc(x + 0.5) }
+myround <- function(x) { trunc(x + 0.5) }
 round<-"floor"
 
 # Scales reads by 
@@ -1509,32 +1509,56 @@ dev.off()
 
 ```{r}
 set.seed(4798)
-shared.relab <- decostand(raredfplot,method="total",MARGIN=2) # standardisation
-shared.cs <- shared.relab*min(colSums(shared.t.ns))
-disjac <- vegdist(t(shared.relab),method="jaccard")
-disjac.cs <- vegdist(t(shared.cs),method="jaccard")
+
+raredfplot <- shared.t.ns
+shared.relab <- decostand(raredfplot, method="total", MARGIN=2) # standardisation of OTU-table: proportions
+shared.cs <- shared.relab * min(colSums(shared.t.ns))
+
+disjac <- vegdist(t(shared.relab), method="jaccard") #computes dissimilarity indices
+disjac.cs <- vegdist(t(shared.cs), method="jaccard")
+
 discyd <- vegdist(t(raredfplot),method="cao") #can handle different sample sizes
 suppressWarnings(discyd.cs <- vegdist(t(ceiling(shared.cs)),method="cao")) #can handle different sample sizes
  
-mdsjac <- metaMDS(disjac,trace=FALSE,try=50,trymax=2000)
+mdsjac <- metaMDS(disjac,trace=FALSE,try=50,trymax=2000)   #metaMDS performs an NMDS
 mdsjac.cs <- metaMDS(disjac.cs,trace=FALSE,try=50,trymax=5000)
+
 mdscyd <- metaMDS(discyd,trace=FALSE,try=50,trymax=5000)
 mdscyd.cs <- metaMDS(discyd.cs,trace=FALSE,try=50,trymax=2000)
 
+library(RColorBrewer)
 
 plot(mdsjac,type="n",display="sites")
 ordipointlabel(mdsjac,display = "sites",add=TRUE)
 colvect<-rep("blue",length(rownames(mdsjac$points)))
-brewset <- brewer.pal(8,"Set2")
+brewset <- brewer.pal(5,"Set2")
 md.mdsjac <- metadata[rownames(mdsjac$points),]
-for(i in 2:nlevels(factor(md.mdsjac$Factor1))){
-  colvect[which(md.mdsjac$Factor1==levels(factor(md.mdsjac$Factor1))[i])]<- brewset[i]
-}
+for(i in 2:nlevels(factor(md.mdsjac$EM))){
+  colvect[which(md.mdsjac$EM==levels(factor(md.mdsjac$EM))[i])]<- brewset[i]
+}                                             # for loop assigns colors to levels of EM
 points(mdsjac,pch=16,col=colvect)
 legend("bottomleft",
-       legend = levels(factor(md.mdsjac$Factor1)),
-       col=c("blue",brewset[2:nlevels(factor(md.mdsjac$Factor1))]),
+       legend = levels(factor(md.mdsjac$EM)),
+       col=c("blue",brewset[2:nlevels(factor(md.mdsjac$EM))]),
        pch = 16)
+
+DataNMDSJac <- merge(mdsjac$points,metadata, by.x)
+DataNMDSJac <-as.data.frame(c(as.data.frame(mdsjac$points),metadata))
+colnames(DataNMDSJac)[5]<- "Donor"
+colnames(DataNMDSJac)[6]<- "Timepoint"
+
+NMDSjac <- ggplot(data = DataNMDSJac, aes(MDS1, MDS2),shape=as.factor(EM_Conc), color=as.factor(EM))+
+  geom_point()+
+  facet_grid(Timepoint~Donor)+
+  theme_minimal() +
+  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set3")+
+  ggtitle("Ordination Jaccard Diversity")+
+  ylab("MDS1")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )
+  #labs(fill = "Timepoint")+
+NMDSjac
+
 
 plot(mdsjac.cs,type="n",display="sites")
 ordipointlabel(mdsjac.cs,display = "sites",add=TRUE)
