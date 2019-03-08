@@ -1526,52 +1526,131 @@ mdsjac.cs <- metaMDS(disjac.cs,trace=FALSE,try=50,trymax=5000)
 mdscyd <- metaMDS(discyd,trace=FALSE,try=50,trymax=5000)
 mdscyd.cs <- metaMDS(discyd.cs,trace=FALSE,try=50,trymax=2000)
 
-library(RColorBrewer)
-
-plot(mdsjac,type="n",display="sites")
-ordipointlabel(mdsjac,display = "sites",add=TRUE)
-colvect<-rep("blue",length(rownames(mdsjac$points)))
-brewset <- brewer.pal(5,"Set2")
-md.mdsjac <- metadata[rownames(mdsjac$points),]
-for(i in 2:nlevels(factor(md.mdsjac$EM))){
-  colvect[which(md.mdsjac$EM==levels(factor(md.mdsjac$EM))[i])]<- brewset[i]
-}                                             # for loop assigns colors to levels of EM
-points(mdsjac,pch=16,col=colvect)
-legend("bottomleft",
-       legend = levels(factor(md.mdsjac$EM)),
-       col=c("blue",brewset[2:nlevels(factor(md.mdsjac$EM))]),
-       pch = 16)
-
+#PLOT JACCARD ORDINATION
 DataNMDSJac <- merge(mdsjac$points,metadata, by.x)
 DataNMDSJac <-as.data.frame(c(as.data.frame(mdsjac$points),metadata))
 colnames(DataNMDSJac)[5]<- "Donor"
 colnames(DataNMDSJac)[6]<- "Timepoint"
+DataNMDSJac$EM_Conc <- as.factor(DataNMDSJac$EM_Conc)
 
-NMDSjac <- ggplot(data = DataNMDSJac, aes(MDS1, MDS2),shape=as.factor(EM_Conc), color=as.factor(EM))+
+NMDSjac <- ggplot(data = DataNMDSJac, aes(MDS1, MDS2, shape=EM_Conc, color= EM))+
   geom_point()+
   facet_grid(Timepoint~Donor)+
   theme_minimal() +
-  #theme(axis.text.x = element_text(size=10), legend.title=element_text(size=10), legend.text=element_text(size=7))
+  scale_fill_brewer(palette="Set3")+
+  ggtitle("Ordination Jaccard Diversity")+
+  ylab("MDS2")+
+  xlab("MDS1")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6))
+  labs(fill = "Timepoint")
+NMDSjac
+
+pdf("Plot_Batch_Illumina_Run3_NMDSJaccard.pdf",width = 12, height = 4, pointsize = 10)
+    NMDSjac
+dev.off()
+
+
+## NMDS for Jaccard for T0 & T2 separate
+DataNMDSJacT0 <- dplyr::filter(DataNMDSJac, Timepoint ==0)
+
+NMDSjacT0 <- ggplot(data = DataNMDSJacT0, aes(MDS1, MDS2, shape=EM_Conc, color= EM))+
+  geom_point()+
+  facet_grid(~Donor)+
+  theme_minimal() +
+  scale_fill_brewer(palette="Set3")+
+  ggtitle("Ordination Jaccard Diversity")+
+  ylab("MDS2")+
+  xlab("MDS1")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6))
+  labs(fill = "Timepoint")
+NMDSjacT0
+
+pdf("Plot_Batch_Illumina_Run3_NMDSJaccardT0.pdf",width = 12, height = 4, pointsize = 10)
+    NMDSjacT0
+dev.off()
+
+
+DataNMDSJacT2 <- dplyr::filter(DataNMDSJac, Timepoint ==48)
+
+NMDSjacT2 <- ggplot(data = DataNMDSJacT2, aes(MDS2, MDS1, shape=EM_Conc, color= EM))+
+  geom_point()+
+  facet_grid(~Donor)+
+  theme_minimal() +
   scale_fill_brewer(palette="Set3")+
   ggtitle("Ordination Jaccard Diversity")+
   ylab("MDS1")+
-  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6) )
-  #labs(fill = "Timepoint")+
-NMDSjac
+  xlab("MDS2")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6))
+  labs(fill = "Timepoint")
+NMDSjacT2
+
+pdf("Plot_Batch_Illumina_Run3_NMDSJaccardT2.pdf",width = 12, height = 4, pointsize = 10)
+    NMDSjacT2
+dev.off()
 
 
-plot(mdsjac.cs,type="n",display="sites")
-ordipointlabel(mdsjac.cs,display = "sites",add=TRUE)
-colvect<-rep("blue",length(rownames(mdsjac.cs$points)))
-md.mdsjac.cs <- metadata[rownames(mdsjac.cs$points),]
-for(i in 2:nlevels(factor(md.mdsjac.cs$Factor1))){
-  colvect[which(md.mdsjac.cs$Factor1==levels(factor(md.mdsjac.cs$Factor1))[i])]<- brewset[i]
-}
-points(mdsjac.cs,pch=16,col=colvect)
-legend("bottomleft",
-       legend = levels(factor(md.mdsjac.cs$Factor1)),
-       col=c("blue",brewset[2:nlevels(factor(md.mdsjac.cs$Factor1))]),
-       pch = 16)
+#PLOT CAO ORDINATION
+DataNMDSCao <- merge(mdscyd$points,metadata)
+DataNMDSCao <-as.data.frame(c(as.data.frame(mdscyd$points),metadata))
+colnames(DataNMDSCao)[5]<- "Donor"
+colnames(DataNMDSCao)[6]<- "Timepoint"
+DataNMDSCao$EM_Conc <- as.factor(DataNMDSCao$EM_Conc)
+
+NMDSCao <- ggplot(data = DataNMDSCao, aes(MDS1, MDS2, shape=EM_Conc, color= EM))+
+  geom_point()+
+  facet_grid(Timepoint~Donor)+
+  theme_minimal() +
+  scale_fill_brewer(palette="Set3")+
+  ggtitle("Ordination Cao Diversity")+
+  ylab("MDS2")+
+  xlab("MDS1")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6))
+  labs(fill = "Timepoint")
+NMDSCao
+
+pdf("Plot_Batch_Illumina_Run3_NMDSCao.pdf",width = 12, height = 4, pointsize = 10)
+    NMDSCao
+dev.off()
+
+
+## NMDS for CAO for T0 & T2 separate
+DataNMDSCaoT0 <- dplyr::filter(DataNMDSCao, Timepoint ==0)
+
+NMDSCaoT0 <- ggplot(data = DataNMDSCaoT0, aes(MDS1, MDS2, shape=EM_Conc, color= EM))+
+  geom_point()+
+  facet_grid(~Donor)+
+  theme_minimal() +
+  scale_fill_brewer(palette="Set3")+
+  ggtitle("Ordination Cao Diversity")+
+  ylab("MDS2")+
+  xlab("MDS1")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6))
+  labs(fill = "Timepoint")
+NMDSCaoT0
+
+pdf("Plot_Batch_Illumina_Run3_NMDSCaoT0.pdf",width = 12, height = 4, pointsize = 10)
+    NMDSCaoT0
+dev.off()
+
+
+DataNMDSCaoT2 <- dplyr::filter(DataNMDSCao, Timepoint ==48)
+
+NMDSCaoT2 <- ggplot(data = DataNMDSCaoT2, aes(MDS2, MDS1, shape=EM_Conc, color= EM))+
+  geom_point()+
+  facet_grid(~Donor)+
+  theme_minimal() +
+  scale_fill_brewer(palette="Set3")+
+  ggtitle("Ordination Cao Diversity")+
+  ylab("MDS1")+
+  xlab("MDS2")+
+  theme(axis.text.x=element_text(angle=90, hjust=1, size = 6),axis.text.y=element_text(size = 6))
+  labs(fill = "Timepoint")
+NMDSCaoT2
+
+pdf("Plot_Batch_Illumina_Run3_NMDSCaoT2.pdf",width = 12, height = 4, pointsize = 10)
+    NMDSCaoT2
+dev.off()
+
 
 # plot(mdscyd,type="n",display="sites")
 # ordipointlabel(mdscyd,display = "sites",add=TRUE)
