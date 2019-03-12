@@ -1701,13 +1701,32 @@ stressplot(mdsjac.cs,disjac.cs)
 # read in excel with cellcounts
 FC <- readxl::read_xlsx('SGPI_All_raw_R.xlsx', sheet = "Sheet1")
 FC <- FC[1:5]
-# merge with metadata?
+FC[6] <- rownames(FC)
+colnames(FC)[6] <- "SampleName"
+v <- rownames(sharedns)
+
+#filter samples out of the FlowCyto data that were sequenced
+FC <- dplyr::filter(FC,FC$SampleName %in% v)
 
 # multiply abundance data for each sample with live cellcounts (cfu/ml) for that sample
+Test <- c(4,5,6,4,5,6,4,5,6)
+test <- matrix(Test, nrow=3, ncol = 3, dimnames = list(c("321","322","323"),c("Otu1","Otu2","Otu3")))
+Count <- c(0.01,0.02,0.5)
+names(Count) <- c("321","322","323")
+AbsAb <- Count * test
+
+RelAbs <- as.data.frame(t(shared.t.ns))
+Count <- as.matrix(FC[5])
+AbsAb <- as.data.frame(matrix(nrow = 319, ncol = 36496))
+
+for (i in as.numeric(FC$SampleName)){
+AbsAb[i,] <- Count[i] * RelAbs[i,]
+}
 
 # use this multiplied OTU-table as new dataset for plots
 
-
+A <-as.data.frame(RelAbs)[1]
+B <-AbsAb[1]
 ```
 
 
